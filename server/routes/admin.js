@@ -134,7 +134,7 @@ r.put('/events/:id/status', async (req, res) => {
 
 // Exclusao definitiva (para eventos de teste): evento, fotos, arquivos e os pedidos que so tinham fotos dele.
 r.post('/events/:id/purge', async (req, res) => {
-  const ev = await db.one('select id, title from events where id = $1', [Number(req.params.id)]);
+  const ev = await db.one('select id, title, photographer_id, drive_source_id from events where id = $1', [Number(req.params.id)]);
   if (!ev) fail(404, 'Evento não encontrado.');
   if (String(req.body?.confirm || '').trim() !== ev.title.trim()) fail(400, 'Digite o nome exato do evento para confirmar.');
   const photos = await db.many('select id, original_path, key from photos where event_id = $1', [ev.id]);
@@ -145,6 +145,18 @@ r.post('/events/:id/purge', async (req, res) => {
       'delete from orders o where o.id = any($1::int[]) and not exists (select 1 from order_items oi where oi.order_id = o.id) returning o.id',
       [orderIds],
     );
+    // Fotos vindas do Drive ficam como recusadas: a proxima sincronizacao nao as traz de volta
+    // ("Revisar de novo" na tela do Google Drive desfaz).
+    const sourceId = ev.drive_source_id || (await t.query(
+      `select id from drive_sources where kind = 'year' and photographer_id = $1 order by id limit 1`, [ev.photographer_id])).rows[0]?.id;
+    if (sourceId) {
+      await t.query(
+        `insert into drive_skips (drive_file_id, source_id, name, reason)
+         select drive_file_id, $2, original_name, 'excluída pelo administrador' from photos where event_id = $1 and drive_file_id is not null
+         on conflict (drive_file_id) do nothing`,
+        [ev.id, sourceId],
+      );
+    }
     await t.query('delete from drive_sources where event_id = $1', [ev.id]);
     await t.query('delete from events where id = $1', [ev.id]);
     return del.rows.length;

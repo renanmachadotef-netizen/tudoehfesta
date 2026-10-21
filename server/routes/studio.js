@@ -534,6 +534,34 @@ async function mergeInto(other, ev) {
   invalidateFaces();
 }
 
+// Visao do acervo por ano: o que esta no site, de onde veio e quanto vendeu (controle do fotografo/admin).
+const GROUP_STATS = `
+  (select count(*) from photos p where p.event_id = e.id and (p.needs_faces or p.needs_render or p.key is null))::int as pending,
+  (select coalesce(sum(p.faces_count), 0) from photos p where p.event_id = e.id)::int as faces,
+  (select count(*) from order_items oi join orders o on o.id = oi.order_id and o.status = 'paid' where oi.event_id = e.id)::int as sold,
+  (select coalesce(sum(oi.price_cents), 0) from order_items oi join orders o on o.id = oi.order_id and o.status = 'paid' where oi.event_id = e.id)::int as sold_cents`;
+r.get('/acervo', async (req, res) => {
+  const scope = [req.user.role === 'admin', req.user.id];
+  const years = await db.many(
+    `select y as year, count(*) filter (where kind = 'pool')::int as groups, count(*) filter (where kind = 'event')::int as events,
+            sum(photo_count)::int as photos, sum(faces)::int as faces, sum(pending)::int as pending, sum(sold)::int as sold, sum(sold_cents)::int as sold_cents
+       from (select e.kind, extract(year from e.event_date)::int as y,
+                    (select count(*) from photos p where p.event_id = e.id and p.key is not null)::int as photo_count, ${GROUP_STATS}
+               from events e where ($1::boolean or e.photographer_id = $2)) x
+      group by y order by y desc`,
+    scope,
+  );
+  const year = Number(req.query.year) || years[0]?.year;
+  const groups = year ? await db.many(
+    `select ${EVENT_CARD}, e.drive_folder_path, e.drive_folder_id, (select min(p.tag) from photos p where p.event_id = e.id) as tag, ${GROUP_STATS}
+       ${EVENT_JOINS}
+      where ($1::boolean or e.photographer_id = $2) and e.event_date >= make_date($3, 1, 1) and e.event_date < make_date($3 + 1, 1, 1)
+      order by e.event_date desc, e.id desc`,
+    [...scope, year],
+  ) : [];
+  res.json({ years, year, groups: groups.map(eventCard) });
+});
+
 // Acervo do ano (pastas importadas pela pasta geral), para escolher a tag ao cadastrar um evento.
 r.get('/pool', async (req, res) => {
   const q = cleanText(req.query.q, 80);

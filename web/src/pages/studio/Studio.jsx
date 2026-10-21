@@ -1,5 +1,5 @@
 import { NavLink, Navigate, Route, Routes, Link } from 'react-router-dom';
-import { LayoutDashboard, FolderOpen, Receipt, Wallet, Tag, User, Plus, Clock, HardDrive, Stamp } from 'lucide-react';
+import { LayoutDashboard, FolderOpen, Receipt, Wallet, Tag, User, Plus, Clock, HardDrive, Stamp, Archive } from 'lucide-react';
 import { useSite, useTitle } from '../../lib/site.jsx';
 import { Loading } from '../../components/Layout.jsx';
 import Dashboard from './Dashboard.jsx';
@@ -11,6 +11,7 @@ import Coupons from './Coupons.jsx';
 import Profile from './Profile.jsx';
 import Drive from './Drive.jsx';
 import Watermark from './Watermark.jsx';
+import Acervo from './Acervo.jsx';
 
 export default function Studio() {
   const { user, ready } = useSite();
@@ -27,6 +28,7 @@ export default function Studio() {
         {approved && (
           <>
             <NavLink to="/painel" end><LayoutDashboard size={18} /> Visão geral</NavLink>
+            <NavLink to="/painel/acervo"><Archive size={18} /> Acervo por ano</NavLink>
             <NavLink to="/painel/eventos"><FolderOpen size={18} /> Eventos</NavLink>
             <NavLink to="/painel/vendas"><Receipt size={18} /> Vendas</NavLink>
             <NavLink to="/painel/financeiro"><Wallet size={18} /> Financeiro</NavLink>
@@ -52,6 +54,7 @@ export default function Studio() {
           {approved ? (
             <>
               <Route index element={<Dashboard />} />
+              <Route path="acervo" element={<Acervo />} />
               <Route path="eventos" element={<EventsList />} />
               <Route path="eventos/novo" element={<EventEditor />} />
               <Route path="eventos/:id" element={<EventEditor />} />

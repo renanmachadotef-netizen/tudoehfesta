@@ -183,7 +183,7 @@ function Events() {
   const { toast } = useSite();
   const { data, loading, error, reload } = useApi('/admin/events');
   const purge = async (e) => {
-    const typed = prompt(`Excluir DEFINITIVAMENTE "${e.title}", com todas as fotos e os pedidos dele? Isso não pode ser desfeito.\n\nDigite o nome do evento para confirmar:`);
+    const typed = prompt(`Excluir DEFINITIVAMENTE "${e.title}", com todas as fotos e os pedidos dele? Isso não pode ser desfeito.\nAs fotos continuam no Google Drive e não voltam na próxima sincronização.\n\nDigite o nome do evento para confirmar:`);
     if (typed == null) return;
     try {
       const d = await api(`/admin/events/${e.id}/purge`, { method: 'POST', body: { confirm: typed } });
@@ -200,7 +200,7 @@ function Events() {
   if (error) return <ErrorBox error={error} />;
   return (
     <div className="stack">
-      <PageHead title="Todos os eventos"><Link to="/painel/eventos/novo" className="btn btn-sm btn-accent">Novo evento (meu)</Link></PageHead>
+      <PageHead title="Todos os eventos"><Link to="/painel/acervo" className="btn btn-sm btn-ghost">Ver acervo por ano</Link><Link to="/painel/eventos/novo" className="btn btn-sm btn-accent">Novo evento (meu)</Link></PageHead>
       <div className="table-wrap"><table className="table">
         <thead><tr><th>Evento</th><th>Fotógrafo</th><th>Status</th><th className="num">Fotos</th><th className="num">Rostos</th><th className="num">Visitas</th><th className="num">Vendido</th><th></th></tr></thead>
         <tbody>{data.events.map((e) => (
