@@ -1,0 +1,33 @@
+{
+  "name": "tudoehfesta",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Tudo Eh Festa - plataforma de venda de fotos de eventos com reconhecimento facial",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "dev": "node scripts/dev.js",
+    "dev:server": "node --watch server/index.js",
+    "dev:web": "vite",
+    "build": "node scripts/copy-models.js && vite build",
+    "start": "node server/index.js"
+  },
+  "dependencies": {
+    "express": "^5.2.1",
+    "fflate": "^0.8.3",
+    "multer": "^2.0.2",
+    "pg": "^8.16.3",
+    "sharp": "^0.34.5"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.3.15",
+    "@vitejs/plugin-react": "^6.0.1",
+    "@vladmandic/face-api": "^1.7.15",
+    "lucide-react": "^1.60.0",
+    "qrcode": "^1.5.4",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "react-router-dom": "^7.18.4",
+    "vite": "^8.3.4"
+  }
+}
