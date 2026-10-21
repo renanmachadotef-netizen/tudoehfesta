@@ -120,6 +120,45 @@ async function removeVariants(eventId, photoId, key) {
   await Promise.all(['p', 't'].map((v) => fsp.unlink(path.join(dirs.public, v, String(eventId), fileName(photoId, key))).catch(() => {})));
 }
 
+// Muda vitrine e miniatura de pasta quando a foto passa para outro evento (sem baixar o original de novo).
+export async function movePhotoFiles(fromEventId, toEventId, photoId, key) {
+  const name = fileName(photoId, key);
+  try {
+    for (const v of ['p', 't']) {
+      const to = path.join(dirs.public, v, String(toEventId), name);
+      await fsp.mkdir(path.dirname(to), { recursive: true });
+      await fsp.rename(path.join(dirs.public, v, String(fromEventId), name), to);
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// Pastas de previas de eventos que nao existem mais (juntados a outro evento por uma versao antiga, que refazia
+// tudo): as previas ainda validas vao para o evento atual da foto; o resto e lixo e sai. Devolve quantas mudaram.
+export async function relocateOrphanPreviews(db) {
+  const live = new Set((await db.many('select id from events')).map((r) => String(r.id)));
+  const found = (await fsp.readdir(path.join(dirs.public, 'p')).catch(() => [])).filter((d) => /^\d+$/.test(d) && !live.has(d));
+  let moved = 0;
+  for (const d of found) {
+    const parsed = (await fsp.readdir(path.join(dirs.public, 'p', d)).catch(() => []))
+      .map((f) => f.match(/^(\d+)-([0-9a-f]+)\.webp$/)).filter(Boolean);
+    const rows = parsed.length ? await db.many('select id, event_id, key from photos where id = any($1::int[])', [parsed.map((m) => Number(m[1]))]) : [];
+    const byId = new Map(rows.map((r) => [r.id, r]));
+    for (const m of parsed) {
+      const r = byId.get(Number(m[1]));
+      if (!r || r.key !== m[2] || String(r.event_id) === d) continue;
+      if (await movePhotoFiles(d, r.event_id, r.id, r.key)) {
+        await db.query('update photos set needs_render = false where id = $1', [r.id]);
+        moved++;
+      }
+    }
+    await Promise.all(['p', 't'].map((v) => fsp.rm(path.join(dirs.public, v, d), { recursive: true, force: true })));
+  }
+  return moved;
+}
+
 export async function removePhotoFiles(eventId, photoId, originalPath, key) {
   await removeVariants(eventId, photoId, key);
   if (originalPath && !originalPath.startsWith('drive:')) await fsp.unlink(path.join(dirs.originals, originalPath)).catch(() => {});

@@ -1,5 +1,5 @@
 import { db } from './db.js';
-import { renderPhoto } from './storage.js';
+import { renderPhoto, relocateOrphanPreviews } from './storage.js';
 import { detectFacesOnServer } from './facepool.js';
 import { withOriginal, isDriveOriginal, copyToServer } from './originals.js';
 import { encodeDescriptor, invalidateFaces } from './faces.js';
@@ -141,10 +141,18 @@ async function tick() {
 }
 
 export function startJobs() {
-  // Sincronizacao interrompida por um reinicio (deploy) volta para a fila em vez de ficar presa.
-  db.query(`update drive_sources set last_status = 'na fila' where last_status = 'sincronizando'`).catch(() => {});
-  setInterval(tick, 4000).unref();
-  setTimeout(tick, 2000);
+  // Sincronizacao interrompida por um reinicio (deploy) volta para a fila em vez de ficar presa
+  // (se a outra copia do servidor ainda esta trabalhando nela, o sinal de vida esta recente e ela fica).
+  db.query(`update drive_sources set last_status = 'na fila'
+             where last_status = 'sincronizando' and (sync_heartbeat is null or sync_heartbeat < now() - interval '5 minutes')`).catch(() => {});
+  // Antes da fila: aproveita previas que ficaram na pasta de um evento juntado a outro.
+  relocateOrphanPreviews(db)
+    .then((n) => { if (n) activity('drive', `${n} prévias reaproveitadas (mudaram de pasta, sem baixar de novo)`); })
+    .catch((err) => console.error('[previas]', err.message))
+    .finally(() => {
+      setInterval(tick, 4000).unref();
+      setTimeout(tick, 500);
+    });
 }
 
 export async function queueStatus(where = 'true', params = []) {

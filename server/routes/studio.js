@@ -1,10 +1,11 @@
 import fsp from 'node:fs/promises';
+import path from 'node:path';
 import { Router } from 'express';
 import multer from 'multer';
 import { db } from '../db.js';
 import { config } from '../config.js';
 import { requirePhotographer, requireUser } from '../auth.js';
-import { dirs, saveOriginal, renderPhoto, photoSha, removePhotoFiles, storeAsset } from '../storage.js';
+import { dirs, saveOriginal, renderPhoto, photoSha, removePhotoFiles, storeAsset, movePhotoFiles } from '../storage.js';
 import { normalizeWatermark, watermarkPreview, clearWatermarkCache } from '../watermark.js';
 import { driveInfo, parseFolderId, folderName, previewSource } from '../drive.js';
 import { queueStatus } from '../jobs.js';
@@ -559,14 +560,24 @@ r.delete('/drive/:id', async (req, res) => {
 // Junta as fotos de um evento (normalmente do acervo do ano) neste evento cadastrado: fotos, rostos, vendas e
 // sugestoes vao junto; a vitrine e refeita com a marca d'agua deste evento. Nada e duplicado.
 async function mergeInto(other, ev) {
+  const marks = await db.many('select id, watermark_mode, photographer_id from events where id = any($1::int[])', [[other.id, ev.id]]);
+  const [a, b] = [marks.find((m) => m.id === other.id), marks.find((m) => m.id === ev.id)];
+  const sameMark = a && b && a.watermark_mode === b.watermark_mode && a.photographer_id === b.photographer_id;
+  const photos = await db.many('select id, key from photos where event_id = $1 and key is not null', [other.id]);
   await db.tx(async (t) => {
     await t.query('update events set drive_folder_id = null where id = $1', [other.id]);
-    await t.query('update photos set event_id = $2, needs_render = true where event_id = $1', [other.id, ev.id]);
+    await t.query('update photos set event_id = $2 where event_id = $1', [other.id, ev.id]);
     await t.query('update faces set event_id = $2, year = $3 where event_id = $1', [other.id, ev.id, Number(String(ev.event_date).slice(0, 4))]);
     await t.query('update order_items set event_id = $2 where event_id = $1', [other.id, ev.id]);
     await t.query('delete from drive_sources where event_id = $1', [other.id]);
     await t.query('delete from events where id = $1', [other.id]);
   });
+  // As previas so mudam de pasta (rapido, sem baixar do Drive); refaz apenas se a marca d'agua for outra.
+  const redo = [];
+  for (const p of photos) if (!sameMark || !(await movePhotoFiles(other.id, ev.id, p.id, p.key))) redo.push(p.id);
+  if (redo.length) await db.query('update photos set needs_render = true where id = any($1::int[])', [redo]);
+  if (!sameMark) await Promise.all(photos.map((p) => movePhotoFiles(other.id, ev.id, p.id, p.key)));
+  await Promise.all(['p', 't'].map((v) => fsp.rm(path.join(dirs.public, v, String(other.id)), { recursive: true, force: true })));
   invalidateFaces();
 }
 

@@ -282,3 +282,6 @@ create index if not exists photos_tag_idx on photos (tag) where tag is not null;
 
 -- v9: foto oculta pelo fotografo/admin (sai de tudo que e publico, mas continua guardada e baixavel por quem ja comprou)
 alter table photos add column if not exists hidden boolean not null default false;
+
+-- v10: sinal de vida da sincronizacao (duas copias do servidor durante um deploy nao importam a mesma pasta)
+alter table drive_sources add column if not exists sync_heartbeat timestamptz;

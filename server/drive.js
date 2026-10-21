@@ -292,7 +292,7 @@ async function importFile(source, event, file) {
     await skip(source, file, `formato não suportado (${file.mimeType.replace('image/', '')})`);
     return 'skip';
   }
-  const tmp = path.join(dirs.tmp, `drive-${file.id}`);
+  const tmp = path.join(dirs.tmp, `drive-${file.id}-${crypto.randomBytes(4).toString('hex')}`);
   try {
     await downloadDriveFile(file.id, tmp);
     let meta;
@@ -381,7 +381,14 @@ export async function previewSource(source) {
 export async function syncSource(sourceId) {
   const source = await db.one('select * from drive_sources where id = $1', [sourceId]);
   if (!source) return;
-  await db.query(`update drive_sources set last_status = 'sincronizando', last_error = null where id = $1`, [source.id]);
+  // Reserva a pasta: se outra copia do servidor ja esta nela (deploy em andamento), nao entra.
+  const claimed = await db.one(
+    `update drive_sources set last_status = 'sincronizando', last_error = null, sync_heartbeat = now()
+      where id = $1 and (last_status is distinct from 'sincronizando' or sync_heartbeat is null or sync_heartbeat < now() - interval '5 minutes')
+      returning id`,
+    [source.id],
+  );
+  if (!claimed) return;
   progress.sync = { source: source.name, started: Date.now(), phase: 'lendo as pastas do Drive', total: 0, done: 0, imported: 0, skipped: 0, folder: null };
   let imported = 0;
   let skipped = 0;
@@ -431,6 +438,7 @@ export async function syncSource(sourceId) {
           activity('erro', `Drive: ${file.name}: ${err.message}`);
         }
         Object.assign(progress.sync, { done: progress.sync.done + 1, imported, skipped });
+        await db.query('update drive_sources set sync_heartbeat = now() where id = $1', [source.id]);
       }
       if (imported > before) activity('import', `+${imported - before} fotos de ${folderPath}`);
     }
@@ -459,7 +467,8 @@ export async function syncDueSources() {
   if (!driveInfo().configured) return;
   const due = await db.one(
     `select id from drive_sources where active
-       and (last_sync_at is null or last_sync_at < now() - make_interval(mins => $1) or last_status like 'continuando%' or last_status = 'na fila')
+       and (last_sync_at is null or last_sync_at < now() - make_interval(mins => $1) or last_status like 'continuando%' or last_status = 'na fila'
+            or (last_status = 'sincronizando' and sync_heartbeat < now() - interval '5 minutes'))
      order by last_sync_at nulls first limit 1`,
     [SYNC_MINUTES],
   );
