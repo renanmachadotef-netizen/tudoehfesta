@@ -124,8 +124,9 @@ r.get('/events/:slug/photos', async (req, res) => {
   const ev = await db.one('select id, status, photographer_id, hide_gallery, kind from events where slug = $1', [req.params.slug]);
   const owner = req.user?.role === 'admin' || req.user?.id === ev?.photographer_id;
   if (!ev || (ev.status !== 'published' && !owner)) fail(404, 'Evento não encontrado.');
-  // Galeria oculta: as fotos so aparecem pela busca por selfie.
-  if ((ev.hide_gallery || ev.kind === 'pool') && !owner) return res.json({ photos: [], more: false, hidden: true });
+  // Galeria oculta: as fotos so aparecem pela busca por selfie. Vale tambem para o dono/admin nesta pagina
+  // (ele ve exatamente o que o visitante ve; as fotos ficam no painel).
+  if (ev.hide_gallery || ev.kind === 'pool') return res.json({ photos: [], more: false, hidden: true, owner });
   const limit = Math.min(Number(req.query.limit) || 120, 300);
   const offset = Math.max(Number(req.query.offset) || 0, 0);
   const rows = await db.many(

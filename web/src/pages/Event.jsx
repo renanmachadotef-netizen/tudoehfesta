@@ -60,7 +60,7 @@ export default function EventPage() {
     setMine(null);
     setTab('todas');
     api(`/events/${slug}`).then((d) => setEvent(d.event)).catch(setError);
-    api(`/events/${slug}/photos?limit=200`).then((d) => setPhotos({ list: d.photos, more: d.more, loading: false, hidden: !!d.hidden })).catch(() => setPhotos({ list: [], more: false, loading: false }));
+    api(`/events/${slug}/photos?limit=200`).then((d) => setPhotos({ list: d.photos, more: d.more, loading: false, hidden: !!d.hidden, owner: !!d.owner })).catch(() => setPhotos({ list: [], more: false, loading: false }));
   }, [slug]);
 
   const eventInfo = useMemo(() => (event ? { event_title: event.title, event_slug: event.slug, price_cents: event.price_cents } : {}), [event]);
@@ -158,6 +158,7 @@ export default function EventPage() {
             <Lock size={28} />
             <b>Fotos protegidas</b>
             <p className="muted small" style={{ maxWidth: 460 }}>Neste evento as fotos não ficam expostas: cada pessoa vê só as fotos em que aparece. Tire uma selfie acima para encontrar as suas entre as {event.photo_count} fotos.</p>
+            {photos.owner && <p className="small" style={{ maxWidth: 460 }}>Você está logado como responsável pelo evento e vê esta página igual a um visitante. <Link to={`/painel/eventos/${event.id}`} style={{ textDecoration: 'underline' }}>Ver e gerenciar as fotos no painel</Link></p>}
           </div>
         )}
         {photos.loading ? <Loading /> : shown.length > 0 && <PhotoGrid photos={shown} owned={owned} eventInfo={eventInfo} />}
