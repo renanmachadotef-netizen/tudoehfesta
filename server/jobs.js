@@ -109,9 +109,15 @@ async function autoPublish() {
       where e.auto_publish and e.status = 'draft'
         and exists (select 1 from photos p where p.event_id = e.id)
         and not exists (select 1 from photos p where p.event_id = e.id and (p.needs_faces or p.needs_render))
-        and not exists (select 1 from drive_sources s where s.id = e.drive_source_id
-                         and (s.last_status in ('sincronizando', 'na fila') or s.last_status like 'continuando%'))
+        -- Evento cadastrado: espera a pasta dele terminar. Acervo: libera cada pasta assim que as fotos dela
+        -- estao prontas (a pasta geral pode levar horas); so a que esta sendo importada agora espera.
+        and (case when e.kind = 'pool'
+                  then e.drive_folder_path is distinct from $1
+                  else not exists (select 1 from drive_sources s where s.id = e.drive_source_id
+                                    and (s.last_status in ('sincronizando', 'na fila') or s.last_status like 'continuando%'))
+             end)
       returning e.id, e.title, e.kind`,
+    [progress.sync?.folder || null],
   );
   for (const r of rows) {
     console.log('[publicacao] evento publicado automaticamente:', r.title);
