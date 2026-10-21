@@ -108,7 +108,7 @@ async function autoPublish() {
         and exists (select 1 from photos p where p.event_id = e.id)
         and not exists (select 1 from photos p where p.event_id = e.id and (p.needs_faces or p.needs_render))
         and not exists (select 1 from drive_sources s where s.id = e.drive_source_id
-                         and (s.last_status = 'sincronizando' or s.last_status like 'continuando%'))
+                         and (s.last_status in ('sincronizando', 'na fila') or s.last_status like 'continuando%'))
       returning e.id, e.title, e.kind`,
   );
   for (const r of rows) {
