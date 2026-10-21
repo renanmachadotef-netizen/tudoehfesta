@@ -46,7 +46,7 @@ function NowCard({ d, now }) {
           <>
             <div className="live-bar"><i style={{ width: `${pct}%` }} /></div>
             <span className="tiny muted">
-              Rodada atual: {run.done} de {run.total} ({run.imported} importadas{run.skipped ? `, ${run.skipped} recusadas` : ''}) · {compact(run.pending_all)} fotos novas no total; cada rodada pega até {run.total >= 40 ? 40 : run.total} e emenda na próxima
+              Rodada atual: {run.done} de {run.total} ({run.imported} importadas{run.skipped ? `, ${run.skipped} recusadas` : ''}) · {compact(run.pending_all)} fotos novas no total; importa em rodadas de {run.total}, uma emendada na outra
             </span>
           </>
         )}

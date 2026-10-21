@@ -26,7 +26,8 @@ import { activity, count, progress } from './activity.js';
 
 const API = 'https://www.googleapis.com/drive/v3';
 export const SYNC_MINUTES = Math.max(2, Number(process.env.DRIVE_SYNC_MINUTES) || 10);
-const FILES_PER_RUN = 40;
+const FILES_PER_RUN = 60;
+const PARALLEL = Math.max(1, Number(process.env.DRIVE_PARALLEL) || 3);
 const MIN_SIDE = 600;
 const IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 
@@ -157,15 +158,17 @@ const isoDate = (y, mo, d) => {
 //   "formatura_futurao_20_10_2026"          -> Formatura Futurao, 2026-10-20
 //   "2026-09-12 Formatura CEJA - Criciuma"  -> Formatura CEJA, 2026-09-12, Criciuma
 //   "12.09 Arraial"                         -> Arraial, <ano>-09-12
+//   "aloisio_19_06_2013 original"           -> Aloisio, 2013-06-19 (sufixos como "original" e "editadas" saem)
+const NOISE = /(?:\s+(?:-\s*)?(?:originais|original|orig|editadas|editada|edit|tratadas|fotos|jpg|jpeg|raw|final|finais|selecionadas|copia|copy))+\s*$/i;
 export function parseEventName(name, year) {
-  let rest = String(name).replace(/_/g, ' ').replace(/\s+/g, ' ').trim();
+  let rest = String(name).replace(/_/g, ' ').replace(/\s+/g, ' ').trim().replace(NOISE, '').trim();
   let date = null;
   let m;
   if ((m = rest.match(/^(\d{4})[-. /](\d{1,2})[-. /](\d{1,2})(?:\s*[-–]\s*|\s+|$)/))) {
     date = isoDate(m[1], m[2], m[3]);
   } else if ((m = rest.match(/^(\d{1,2})[-. /](\d{1,2})[-. /](\d{4}|\d{2})(?:\s*[-–]\s*|\s+|$)/))) {
     date = isoDate(m[3], m[2], m[1]);
-  } else if ((m = rest.match(/(?:^|\s)(\d{1,2})[-. /](\d{1,2})[-. /](\d{4})\s*$/))) {
+  } else if ((m = rest.match(/(?:^|\s)(\d{1,2})[-. /](\d{1,2})[-. /](\d{4})(?=\s|$)/))) {
     date = isoDate(m[3], m[2], m[1]);
   } else if ((m = rest.match(/^(\d{1,2})[-./](\d{1,2})(?:\s*[-–]\s*|\s+)/))) {
     date = isoDate(year, m[2], m[1]);
@@ -258,8 +261,17 @@ async function eventForGroup(source, g) {
     if (ev) return { ...ev, tag: g.folder.name };
   }
   const folderPath = [...g.path, g.folder.name].join(' / ');
-  const found = await db.one('select id, event_date from events where drive_folder_id = $1', [g.folder.id]);
+  const found = await db.one('select id, event_date, kind, title from events where drive_folder_id = $1', [g.folder.id]);
   if (found) {
+    const raw = prettyTitle(String(g.folder.name).replace(/_/g, ' '));
+    const parsed = found.kind === 'pool' && found.title === raw ? describeGroup(source, g) : null;
+    if (parsed && (parsed.title !== found.title || (parsed.date && parsed.date !== String(found.event_date)))) {
+      const date = parsed.date || String(found.event_date);
+      await db.query('update events set title = $2, event_date = $3, city = coalesce(city, $4) where id = $1', [found.id, parsed.title, date, parsed.city]);
+      await db.query('update faces set year = $2 where event_id = $1', [found.id, Number(date.slice(0, 4))]);
+      activity('pasta', `Nome corrigido: "${found.title}" -> "${parsed.title}" (${date.split('-').reverse().join('/')})`);
+      found.event_date = date;
+    }
     await db.query('update events set drive_folder_path = $2 where id = $1 and drive_folder_path is distinct from $2', [found.id, folderPath]);
     await db.query('update photos set tag = $2 where event_id = $1 and tag is null and drive_file_id is not null', [found.id, g.folder.name]);
     return { ...found, tag: g.folder.name };
@@ -418,12 +430,11 @@ export async function syncSource(sourceId) {
       const folderPath = [...g.path, g.folder.name].join(' / ');
       progress.sync.folder = folderPath;
       const before = imported;
-      for (const file of fresh) {
-        if (budget <= 0) {
-          remaining++;
-          continue;
-        }
-        budget--;
+      const take = fresh.slice(0, budget);
+      remaining += fresh.length - take.length;
+      budget -= take.length;
+      // Algumas fotos ao mesmo tempo: o tempo vai quase todo em baixar do Drive, nao em processar.
+      const one = async (file) => {
         try {
           if ((await importFile(source, event, file)) === 'ok') {
             imported++;
@@ -438,6 +449,9 @@ export async function syncSource(sourceId) {
           activity('erro', `Drive: ${file.name}: ${err.message}`);
         }
         Object.assign(progress.sync, { done: progress.sync.done + 1, imported, skipped });
+      };
+      for (let i = 0; i < take.length; i += PARALLEL) {
+        await Promise.all(take.slice(i, i + PARALLEL).map(one));
         await db.query('update drive_sources set sync_heartbeat = now() where id = $1', [source.id]);
       }
       if (imported > before) activity('import', `+${imported - before} fotos de ${folderPath}`);
