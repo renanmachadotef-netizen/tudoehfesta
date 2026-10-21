@@ -27,6 +27,18 @@ app.use(express.json({ limit: '2mb' }));
 
 app.get('/_health', (_req, res) => res.json({ ok: true }));
 
+// Dominios secundarios (REDIRECT_HOSTS, separados por virgula) levam ao endereco principal (PUBLIC_URL).
+// So GET/HEAD: webhooks (POST) continuam funcionando em qualquer dominio.
+const redirectHosts = new Set(String(process.env.REDIRECT_HOSTS || '').split(',').map((h) => h.trim().toLowerCase()).filter(Boolean));
+if (redirectHosts.size) {
+  app.use((req, res, next) => {
+    if ((req.method === 'GET' || req.method === 'HEAD') && redirectHosts.has(String(req.hostname).toLowerCase())) {
+      return res.redirect(301, config.publicUrl + req.originalUrl);
+    }
+    next();
+  });
+}
+
 // Vitrines e miniaturas (com marca d'agua): cache longo, o nome do arquivo nunca muda de conteudo.
 app.use('/m', express.static(dirs.public, { maxAge: '30d', immutable: true, fallthrough: false }));
 
