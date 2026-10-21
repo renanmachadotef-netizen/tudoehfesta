@@ -10,7 +10,7 @@ const KINDS = {
   drive: ['Drive', 'drive'], import: ['Importação', 'drive'], pasta: ['Pasta nova', 'drive'], publicacao: ['Publicado', 'drive'],
   match: ['Encontradas', 'cliente'], rosto: ['Rosto', 'cliente'], blur: ['Borrar', 'cliente'], cliente: ['Cadastro', 'cliente'],
   pedido: ['Pedido', 'venda'], venda: ['Venda', 'venda'], copia: ['Original', 'venda'],
-  exclusao: ['Exclusão', 'erro'], erro: ['Erro', 'erro'],
+  exclusao: ['Exclusão', 'erro'], erro: ['Erro', 'erro'], faxina: ['Faxina', 'drive'],
 };
 const FILTERS = [['all', 'Tudo'], ['drive', 'Drive'], ['cliente', 'Clientes'], ['venda', 'Vendas'], ['erro', 'Erros']];
 
@@ -206,6 +206,9 @@ export default function Live() {
                 <span className="tiny muted">Disco: {gb(disk.total - disk.free)} usados de {gb(disk.total)} · {gb(disk.free)} livres · originais guardados no servidor: {gb(t.server_originals_bytes)}</span>
               </>
             )}
+            <span className="tiny muted">
+              Faxina de arquivos sem uso: {d.server.sweep ? `${ago(d.server.sweep.at, now)}, ${d.server.sweep.tmp + d.server.sweep.previews} arquivo(s) apagado(s)` : 'roda 3 min depois de ligar e uma vez por dia'}
+            </span>
           </div>
         </div>
       </div>

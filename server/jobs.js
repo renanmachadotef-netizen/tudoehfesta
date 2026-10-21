@@ -1,12 +1,12 @@
 import { db } from './db.js';
-import { renderPhoto, relocateOrphanPreviews } from './storage.js';
+import { renderPhoto, relocateOrphanPreviews, sweepOrphans } from './storage.js';
 import { detectFacesOnServer } from './facepool.js';
 import { withOriginal, isDriveOriginal, copyToServer } from './originals.js';
 import { encodeDescriptor, invalidateFaces } from './faces.js';
 import { syncDueSources } from './drive.js';
 import { pollPendingInfinitePay, checkInfinitePay } from './infinitepay.js';
 import { matchBatch, blurBoxesFor } from './matching.js';
-import { activity, count } from './activity.js';
+import { activity, count, progress } from './activity.js';
 
 // Fila em segundo plano guardada no proprio banco (sobrevive a reinicios):
 //   photos.needs_render -> refazer vitrine/miniatura (marca d'agua mudou, foto importada)
@@ -140,6 +140,19 @@ async function tick() {
   }
 }
 
+async function sweep() {
+  try {
+    const r = await sweepOrphans(db);
+    progress.sweep = { at: new Date().toISOString(), ...r };
+    const mb = (r.bytes / 1024 ** 2).toFixed(1).replace('.', ',');
+    activity('faxina', r.tmp || r.previews
+      ? `Faxina: ${r.tmp} arquivo(s) temporário(s) e ${r.previews} prévia(s) sem uso apagados (${mb} MB liberados)`
+      : 'Faxina: nada sobrando no servidor');
+  } catch (err) {
+    console.error('[faxina]', err.message);
+  }
+}
+
 export function startJobs() {
   // Sincronizacao interrompida por um reinicio (deploy) volta para a fila em vez de ficar presa
   // (se a outra copia do servidor ainda esta trabalhando nela, o sinal de vida esta recente e ela fica).
@@ -152,6 +165,9 @@ export function startJobs() {
     .finally(() => {
       setInterval(tick, 4000).unref();
       setTimeout(tick, 500);
+      // Faxina alguns minutos depois de ligar (a outra copia do deploy ja saiu) e depois uma vez por dia.
+      setTimeout(sweep, (Number(process.env.SWEEP_DELAY_S) || 180) * 1000);
+      setInterval(sweep, 24 * 60 * 60_000).unref();
     });
 }
 

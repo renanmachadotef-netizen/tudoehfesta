@@ -9,6 +9,7 @@ import { Loading, ErrorBox } from '../../components/Layout.jsx';
 import { EVENT_STATUS } from './EventsList.jsx';
 import EventDrive from './EventDrive.jsx';
 import DisplaySelect from '../../components/DisplaySelect.jsx';
+import { EventCard } from '../../components/Photos.jsx';
 
 const blank = { title: '', event_date: new Date().toISOString().slice(0, 10), category_id: '', city: '', venue: '', description: '', price: '15,00', pack_price: '', discount_tiers: [{ min: 5, pct: 20 }], status: 'draft', hide_gallery: false, watermark_mode: 'site' };
 
@@ -235,6 +236,51 @@ function ShareKit({ event }) {
   );
 }
 
+// Foto de destaque: a capa do card do evento na lista do site (e na pagina do evento).
+function CoverPicker({ event, photos, onCover }) {
+  const { toast } = useSite();
+  const [open, setOpen] = useState(false);
+  const choices = photos.filter((p) => !p.hidden && !p.pending);
+  const pick = async (p) => {
+    try {
+      await api(`/studio/events/${event.id}/cover`, { method: 'PUT', body: { photoId: p.id } });
+      toast('Foto de destaque definida');
+      setOpen(false);
+      onCover();
+    } catch (err) {
+      toast(err.message);
+    }
+  };
+  return (
+    <div className="card stack" style={{ gap: 14 }}>
+      <div className="cover-picker">
+        <div className="cover-preview"><EventCard event={event} to="#" /></div>
+        <div className="stack" style={{ gap: 6 }}>
+          <b>Foto de destaque</b>
+          <span className="small muted">
+            É a imagem do card do evento no site.{' '}
+            {event.cover_photo_id ? 'Escolhida por você.'
+              : event.hide_gallery || event.kind === 'pool' ? 'Nenhuma escolhida: como as fotos só aparecem pela selfie, o card fica sem imagem até você escolher.'
+                : 'Nenhuma escolhida: o site usa a primeira foto.'}
+          </span>
+          <button className="btn btn-sm btn-accent" style={{ alignSelf: 'flex-start' }} onClick={() => setOpen(!open)}>
+            <Star size={14} /> {open ? 'Fechar' : 'Escolher foto de destaque'}
+          </button>
+        </div>
+      </div>
+      {open && (
+        <div className="studio-photos cover-choices">
+          {choices.map((p) => (
+            <button key={p.id} className={`studio-photo${event.cover_photo_id === p.id ? ' is-cover' : ''}`} onClick={() => pick(p)} title="Usar como destaque">
+              <img src={p.thumb} alt="" loading="lazy" />
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function PhotosManager({ event, photos, setPhotos, onCover, onQueued }) {
   const { toast } = useSite();
   const del = async (p) => {
@@ -373,6 +419,9 @@ export default function EventEditor() {
           </div>
           <DisplaySelect event={event} onChanged={() => api(`/studio/events/${event.id}`).then((x) => { setEvent(x.event); setQueue(x.queue); })} />
         </div>
+      )}
+      {event.id && photos.length > 0 && (
+        <CoverPicker event={event} photos={photos} onCover={() => api(`/studio/events/${event.id}`).then((x) => setEvent(x.event))} />
       )}
       {event.id && <EventDrive eventId={event.id} onChange={() => {
         api(`/studio/events/${event.id}`).then((x) => { setEvent(x.event); setQueue(x.queue); }).catch(() => {});

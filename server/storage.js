@@ -159,6 +159,33 @@ export async function relocateOrphanPreviews(db) {
   return moved;
 }
 
+// Faxina: arquivos temporarios esquecidos (download cortado por um reinicio) e previas que nenhuma foto usa
+// (foto apagada no meio do processamento, previa refeita por outra copia do servidor). Arquivos recentes ficam:
+// podem estar sendo gerados agora.
+export async function sweepOrphans(db) {
+  const out = { tmp: 0, previews: 0, bytes: 0 };
+  const now = Date.now();
+  const drop = async (file, minAgeMs) => {
+    const st = await fsp.stat(file).catch(() => null);
+    if (!st || !st.isFile() || now - st.mtimeMs < minAgeMs) return false;
+    await fsp.unlink(file).catch(() => {});
+    out.bytes += st.size;
+    return true;
+  };
+  for (const f of await fsp.readdir(dirs.tmp).catch(() => [])) if (await drop(path.join(dirs.tmp, f), 60 * 60_000)) out.tmp++;
+  const live = new Set((await db.many('select id from events')).map((r) => String(r.id)));
+  for (const v of ['p', 't']) {
+    for (const d of await fsp.readdir(path.join(dirs.public, v)).catch(() => [])) {
+      if (!/^\d+$/.test(d) || !live.has(d)) continue;
+      const files = await fsp.readdir(path.join(dirs.public, v, d)).catch(() => []);
+      if (!files.length) continue;
+      const valid = new Set((await db.many('select id, key from photos where event_id = $1 and key is not null', [Number(d)])).map((r) => fileName(r.id, r.key)));
+      for (const f of files) if (!valid.has(f) && (await drop(path.join(dirs.public, v, d, f), 15 * 60_000))) out.previews++;
+    }
+  }
+  return out;
+}
+
 export async function removePhotoFiles(eventId, photoId, originalPath, key) {
   await removeVariants(eventId, photoId, key);
   if (originalPath && !originalPath.startsWith('drive:')) await fsp.unlink(path.join(dirs.originals, originalPath)).catch(() => {});

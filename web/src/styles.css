@@ -404,3 +404,15 @@ details.faq p { margin-top: 10px; color: var(--ink-2); }
 .acervo-eye { position: absolute; top: 4px; right: 4px; width: 26px; height: 26px; border-radius: 99px; border: 0; background: rgba(255,255,255,.92); display: none; place-items: center; cursor: pointer; }
 .acervo-thumbs a:hover .acervo-eye, .acervo-thumbs a.is-hidden .acervo-eye { display: grid; }
 @media (hover: none) { .studio-photo .acts, .acervo-eye { display: flex; } .acervo-eye { display: grid; } }
+
+/* Foto de destaque */
+.cover-picker { display: grid; grid-template-columns: 260px 1fr; gap: 18px; align-items: center; }
+.cover-preview { pointer-events: none; }
+.cover-choices { max-height: 420px; overflow-y: auto; }
+.cover-choices .studio-photo { border: 0; padding: 0; cursor: pointer; }
+.cover-choices .studio-photo:hover { outline: 3px solid var(--accent); outline-offset: -3px; }
+.cover-choices .studio-photo.is-cover { outline: 3px solid #ffb21a; outline-offset: -3px; }
+.acervo-star { position: absolute; top: 4px; left: 4px; width: 26px; height: 26px; border-radius: 99px; border: 0; background: rgba(255,255,255,.92); display: none; place-items: center; cursor: pointer; }
+.acervo-thumbs a:hover .acervo-star, .acervo-star.on { display: grid; }
+@media (hover: none) { .acervo-star { display: grid; } }
+@media (max-width: 640px) { .cover-picker { grid-template-columns: 1fr; } }

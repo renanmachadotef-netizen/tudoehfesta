@@ -365,7 +365,7 @@ r.get('/live', async (_req, res) => {
   const mem = process.memoryUsage();
   res.json({
     now: new Date().toISOString(),
-    server: { uptime_s: Math.round((Date.now() - startedAt) / 1000), rss: mem.rss, load: os.loadavg(), cpus: os.cpus().length, disk },
+    server: { uptime_s: Math.round((Date.now() - startedAt) / 1000), rss: mem.rss, load: os.loadavg(), cpus: os.cpus().length, disk, sweep: progress.sweep || null },
     drive: { ...driveInfo(), sync_minutes: SYNC_MINUTES, running: progress.sync, sources },
     queue: { ...queue, ...extra },
     rates: Object.fromEntries(['import', 'skip', 'render', 'scan', 'faces', 'match'].map((k) => [k, { m10: rate(k, 10), m60: rate(k, 60) }])),

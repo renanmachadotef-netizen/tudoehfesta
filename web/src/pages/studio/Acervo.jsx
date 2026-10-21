@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Archive, FolderOpen, Images, ScanFace, ShoppingBag, ChevronDown, ChevronUp, Camera, Trash2, EyeOff, Eye } from 'lucide-react';
+import { Archive, FolderOpen, Images, ScanFace, ShoppingBag, ChevronDown, ChevronUp, Camera, Trash2, EyeOff, Eye, Star } from 'lucide-react';
 import { api } from '../../lib/api.js';
 import { useApi, useSite } from '../../lib/site.jsx';
 import { money, dateBR, plural, compact } from '../../lib/format.js';
@@ -9,9 +9,17 @@ import { PageHead } from './Studio.jsx';
 import DisplaySelect from '../../components/DisplaySelect.jsx';
 
 // Fotos de um grupo, em miniatura (so para o dono/admin: o publico so ve pela selfie).
-function GroupPhotos({ id }) {
+function GroupPhotos({ id, coverId, onChanged }) {
   const { toast } = useSite();
   const { data, loading, setData } = useApi(`/studio/events/${id}/photos`);
+  const setCover = async (e, p) => {
+    e.preventDefault();
+    try {
+      await api(`/studio/events/${id}/cover`, { method: 'PUT', body: { photoId: p.id } });
+      toast('Foto de destaque definida');
+      onChanged?.();
+    } catch (err) { toast(err.message); }
+  };
   const toggle = async (e, p) => {
     e.preventDefault();
     try {
@@ -30,6 +38,7 @@ function GroupPhotos({ id }) {
           <img src={p.thumb} alt="" loading="lazy" />
           {p.sold > 0 && <span className="acervo-sold">vendida</span>}
           {p.hidden && <span className="acervo-hidden">oculta</span>}
+          {!p.hidden && <button className={`acervo-star${coverId === p.id ? ' on' : ''}`} title="Usar como foto de destaque" onClick={(e) => setCover(e, p)}><Star size={13} fill={coverId === p.id ? '#ffb21a' : 'none'} /></button>}
           <button className="acervo-eye" title={p.hidden ? 'Mostrar no site' : 'Ocultar do site'} onClick={(e) => toggle(e, p)}>{p.hidden ? <Eye size={13} /> : <EyeOff size={13} />}</button>
         </a>
       ))}
@@ -82,7 +91,7 @@ function Group({ g, admin, onPurged }) {
         {!pool && g.status === 'published' && <Link to={`/evento/${g.slug}`} className="btn btn-sm btn-ghost">Ver no site</Link>}
         {admin && <button className="btn btn-sm btn-ghost" style={{ color: 'var(--bad)', marginLeft: 'auto' }} onClick={purge}><Trash2 size={14} /> Excluir do site</button>}
       </div>
-      {open && <GroupPhotos id={g.id} />}
+      {open && <GroupPhotos id={g.id} coverId={g.cover_photo_id} onChanged={onPurged} />}
     </div>
   );
 }

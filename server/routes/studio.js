@@ -212,8 +212,8 @@ r.delete('/events/:id', async (req, res) => {
 
 r.put('/events/:id/cover', async (req, res) => {
   const ev = await ownEvent(req, req.params.id);
-  const p = await db.one('select id from photos where id = $1 and event_id = $2', [Number(req.body?.photoId), ev.id]);
-  if (!p) fail(404, 'Foto não encontrada.');
+  const p = await db.one('select id from photos where id = $1 and event_id = $2 and not hidden', [Number(req.body?.photoId), ev.id]);
+  if (!p) fail(404, 'Foto não encontrada (ou está oculta).');
   await db.query('update events set cover_photo_id = $2 where id = $1', [ev.id, p.id]);
   res.json({ ok: true });
 });
@@ -601,7 +601,7 @@ r.get('/acervo', async (req, res) => {
   );
   const year = Number(req.query.year) || years[0]?.year;
   const groups = year ? await db.many(
-    `select ${EVENT_CARD}, e.drive_folder_path, e.drive_folder_id, (select min(p.tag) from photos p where p.event_id = e.id) as tag, ${GROUP_STATS}
+    `select ${EVENT_CARD}, e.drive_folder_path, e.drive_folder_id, e.cover_photo_id, (select min(p.tag) from photos p where p.event_id = e.id) as tag, ${GROUP_STATS}
        ${EVENT_JOINS}
       where ($1::boolean or e.photographer_id = $2) and e.event_date >= make_date($3, 1, 1) and e.event_date < make_date($3 + 1, 1, 1)
       order by e.event_date desc, e.id desc`,
