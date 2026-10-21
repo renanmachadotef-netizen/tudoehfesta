@@ -6,7 +6,8 @@ import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import sharp from 'sharp';
 import { db } from './db.js';
-import { dirs, fileSha, saveOriginal, renderPhoto } from './storage.js';
+import { dirs, fileSha, saveOriginal, renderPhoto, removePhotoFiles } from './storage.js';
+import { getSetting } from './pricing.js';
 import { uniqueSlug } from './util.js';
 import { detectFacesOnServer } from './facepool.js';
 import { encodeDescriptor, invalidateFaces } from './faces.js';
@@ -110,11 +111,27 @@ async function listChildren(folderId) {
 
 const isFolder = (f) => f.mimeType === 'application/vnd.google-apps.folder';
 
-async function listImagesDeep(folderId, depth = 0) {
+// Pastas ignoradas: se alguma palavra do nome da pasta estiver na lista (ex.: "descartadas", "dsc", "site"),
+// a pasta e as subpastas dela ficam de fora. Sem acento e sem diferenca de maiusculas.
+export const DEFAULT_IGNORE = ['descartadas', 'descartada', 'descarte', 'dsc', 'site'];
+const norm = (t) => String(t).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+export async function ignoreWords() {
+  const v = await getSetting('drive_ignore', null);
+  return Array.isArray(v) ? v : DEFAULT_IGNORE;
+}
+const isIgnored = (name, words) => words.length > 0 && norm(name).split(/[^a-z0-9]+/).some((w) => w && words.includes(w));
+
+async function listImagesDeep(folderId, depth = 0, ignore = null) {
   const items = await listChildren(folderId);
   const files = items.filter((f) => !isFolder(f) && f.mimeType?.startsWith('image/'));
   if (depth < 3) {
-    for (const sub of items.filter(isFolder)) files.push(...(await listImagesDeep(sub.id, depth + 1)));
+    for (const sub of items.filter(isFolder)) {
+      if (ignore && isIgnored(sub.name, ignore.words)) {
+        ignore.folders.push(sub);
+        continue;
+      }
+      files.push(...(await listImagesDeep(sub.id, depth + 1, ignore)));
+    }
   }
   return files;
 }
@@ -209,15 +226,20 @@ const isImage = (f) => !isFolder(f) && f.mimeType?.startsWith('image/');
 
 // Percorre a pasta do ano: toda pasta que tem fotos vira um evento (com as fotos das subpastas dela);
 // pastas sem fotos (ano, mes) so organizam. Fotos soltas na raiz vao para "Fotos de <ano>".
+// Devolve os grupos e, em groups.ignored, as pastas puladas pelo nome.
 async function collectGroups(source) {
+  const ignore = { words: (await ignoreWords()).map(norm), folders: [] };
   if (source.kind === 'event') {
-    return [{ folder: { id: source.folder_id, name: source.name }, files: await listImagesDeep(source.folder_id), path: [], isRoot: false, eventId: source.event_id }];
+    const one = [{ folder: { id: source.folder_id, name: source.name }, files: await listImagesDeep(source.folder_id, 0, ignore), path: [], isRoot: false, eventId: source.event_id }];
+    one.ignored = ignore.folders;
+    return one;
   }
   const groups = [];
   async function walk(folder, path, depth) {
     const items = await listChildren(folder.id);
     const images = items.filter(isImage);
-    const subs = items.filter(isFolder).sort((a, b) => a.name.localeCompare(b.name, 'pt', { numeric: true }));
+    const subs = items.filter(isFolder).sort((a, b) => a.name.localeCompare(b.name, 'pt', { numeric: true }))
+      .filter((s) => !(isIgnored(s.name, ignore.words) && ignore.folders.push({ ...s, path: [...path, folder.name] })));
     // Raiz, ano ("2026") e mes ("10") so organizam: fotos soltas nelas viram um grupo proprio,
     // mas as subpastas continuam sendo eventos separados.
     const organizer = depth === 0 || /^\d{4}$/.test(String(folder.name).trim()) || /^\d{1,2}$/.test(String(folder.name).trim());
@@ -225,14 +247,50 @@ async function collectGroups(source) {
       if (images.length) groups.push({ folder, files: images, path, isRoot: depth === 0 });
     } else if (images.length) {
       const files = [...images];
-      for (const s of subs) files.push(...(await listImagesDeep(s.id, depth + 1)));
+      for (const s of subs) files.push(...(await listImagesDeep(s.id, depth + 1, ignore)));
       groups.push({ folder, files, path, isRoot: false });
       return;
     }
     if (depth < 5) for (const s of subs) await walk(s, [...path, folder.name], depth + 1);
   }
   await walk({ id: source.folder_id, name: source.name }, [], 0);
+  groups.ignored = ignore.folders;
   return groups;
+}
+
+// Fotos ja importadas de uma pasta que passou a ser ignorada saem do site (as vendidas so ficam ocultas).
+async function dropIgnored(source, folders) {
+  let removed = 0;
+  for (const f of folders) {
+    const ids = (await listImagesDeep(f.id, 0)).map((x) => x.id);
+    if (!ids.length) continue;
+    const rows = await db.many(
+      `select p.id, p.event_id, p.original_path, p.key, exists (select 1 from order_items oi where oi.photo_id = p.id) as sold
+         from photos p where p.drive_file_id = any($1::text[])`,
+      [ids],
+    );
+    for (const p of rows) {
+      if (p.sold) {
+        await db.query('update photos set hidden = true where id = $1', [p.id]);
+      } else {
+        await db.query('update events set cover_photo_id = null where cover_photo_id = $1', [p.id]);
+        await db.query('delete from photos where id = $1', [p.id]);
+        await removePhotoFiles(p.event_id, p.id, p.original_path, p.key);
+      }
+      removed++;
+    }
+    if (rows.length) activity('pasta', `Pasta ignorada "${[...(f.path || []), f.name].join(' / ')}": ${rows.length} foto(s) já importadas saíram do site`);
+  }
+  if (removed) {
+    // Grupo do acervo que ficou sem nenhuma foto (a pasta inteira era ignorada) some.
+    await db.query(
+      `delete from events e where e.kind = 'pool' and e.drive_source_id = $1
+         and not exists (select 1 from photos p where p.event_id = e.id) and not exists (select 1 from order_items oi where oi.event_id = e.id)`,
+      [source.id],
+    );
+    invalidateFaces();
+  }
+  return removed;
 }
 
 const MONTHS = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
@@ -375,6 +433,7 @@ export async function previewSource(source) {
   const imported = new Set((await db.many('select drive_file_id from photos where drive_file_id is not null')).map((r) => r.drive_file_id));
   return {
     root: top.map((f) => ({ name: f.name, type: isFolder(f) ? 'pasta' : f.mimeType })).slice(0, 100),
+    ignored: (groups.ignored || []).map((f) => [...(f.path || []), f.name].join(' / ')),
     events: groups.map((g) => {
       const d = describeGroup(source, g);
       const supported = g.files.filter((f) => IMAGE_TYPES.has(f.mimeType));
@@ -401,7 +460,7 @@ export async function syncSource(sourceId) {
     [source.id],
   );
   if (!claimed) return;
-  progress.sync = { source: source.name, started: Date.now(), phase: 'lendo as pastas do Drive', total: 0, done: 0, imported: 0, skipped: 0, folder: null };
+  progress.sync = { source_id: source.id, source: source.name, started: Date.now(), phase: 'lendo as pastas do Drive', total: 0, done: 0, imported: 0, skipped: 0, folder: null };
   let imported = 0;
   let skipped = 0;
   let errors = 0;
@@ -411,6 +470,7 @@ export async function syncSource(sourceId) {
     // apaga para o arquivo ser importado de novo nesta rodada.
     await db.query(`delete from photos where original_path = '' and drive_file_id is not null and created_at < now() - interval '10 minutes'`);
     const groups = await collectGroups(source);
+    if (groups.ignored?.length) await dropIgnored(source, groups.ignored);
     const known = new Set((await db.many(
       `select drive_file_id from photos where drive_file_id is not null union select drive_file_id from drive_skips where source_id = $1`,
       [source.id],

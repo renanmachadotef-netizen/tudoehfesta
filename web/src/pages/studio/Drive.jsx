@@ -125,7 +125,9 @@ function SourceCard({ s, reload }) {
                   <td className="num">{e.imported}</td></tr>
               ))}</tbody>
             </table></div>
-          ) : <div className="alert alert-warn">Nenhuma pasta com fotos encontrada. As fotos precisam ser JPG, PNG ou WEBP, dentro de uma pasta de evento (ex.: tudoehfesta / 2026 / 10 / aniversario_luiz_05_10_2026).</div>}
+          ) : null}
+          {preview.ignored?.length > 0 && <div className="tiny muted">Ignoradas pelo nome: {preview.ignored.join('  ·  ')}</div>}
+          {preview.events.length ? null : <div className="alert alert-warn">Nenhuma pasta com fotos encontrada. As fotos precisam ser JPG, PNG ou WEBP, dentro de uma pasta de evento (ex.: tudoehfesta / 2026 / 10 / aniversario_luiz_05_10_2026).</div>}
         </div>
       )}
       {skips && (
@@ -148,7 +150,7 @@ function SourceCard({ s, reload }) {
 }
 
 export default function Drive() {
-  const { toast } = useSite();
+  const { toast, user } = useSite();
   const { data, loading, error, reload } = useApi('/studio/drive');
   const [adding, setAdding] = useState(false);
 
@@ -163,6 +165,15 @@ export default function Drive() {
   if (loading) return <Loading />;
   if (error) return <ErrorBox error={error} />;
   const { info, sources } = data;
+  const editIgnore = async () => {
+    const v = prompt('Pastas com estas palavras no nome são ignoradas (com as subpastas). Separe por vírgula:', (data.ignore || []).join(', '));
+    if (v == null) return;
+    try {
+      const d = await api('/studio/drive-ignore', { method: 'PUT', body: { words: v } });
+      toast(`Lista salva: ${d.words.join(', ') || 'nenhuma'}. Vale a partir da próxima verificação.`);
+      reload();
+    } catch (err) { toast(err.message); }
+  };
 
   return (
     <div className="stack" style={{ gap: 20, maxWidth: 1000 }}>
@@ -184,6 +195,11 @@ export default function Drive() {
  2008/
   foto-antiga.jpg                       → evento "Eventos de 2008"`}</pre>
         <p className="muted">Quer um evento com cadastro próprio (ex.: uma <b>formatura</b> na categoria Formaturas)? Crie o evento em <Link to="/painel/eventos/novo" style={{ textDecoration: 'underline' }}>Novo evento</Link> e cole o link da pasta dele no quadro "Pasta do Google Drive". A pasta do ano reconhece essa pasta e não duplica nada.</p>
+        <p className="muted">
+          <b>Pastas ignoradas:</b> pastas com {(data.ignore || []).map((w) => <code key={w} style={{ marginRight: 4 }}>{w}</code>)} no nome ficam de fora, com as subpastas
+          (ex.: <code>aniversario_luiz_05_10_2026/descartadas</code>). Se já tinham sido importadas, saem do site.
+          {user?.role === 'admin' && <> <button className="btn btn-sm btn-ghost" style={{ height: 26, padding: '0 8px' }} onClick={editIgnore}>Editar lista</button></>}
+        </p>
         <p className="muted">A cada {info.sync_minutes} minutos o sistema confere a pasta, cria os eventos, importa as fotos novas, recusa repetidas, corrompidas e de resolução baixa, reconhece os rostos e publica. Pode ir colocando fotos durante o evento.</p>
         {info.mode === 'service_account' && <p>Compartilhe a pasta (como <b>Leitor</b>) com: <code style={{ userSelect: 'all' }}>{info.share_with}</code></p>}
         {info.mode === 'api_key' && <p>Deixe a pasta como <b>“Qualquer pessoa com o link”</b> (Leitor).</p>}

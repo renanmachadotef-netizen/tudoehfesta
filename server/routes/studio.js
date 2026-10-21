@@ -7,10 +7,10 @@ import { config } from '../config.js';
 import { requirePhotographer, requireUser } from '../auth.js';
 import { dirs, saveOriginal, renderPhoto, photoSha, removePhotoFiles, storeAsset, movePhotoFiles } from '../storage.js';
 import { normalizeWatermark, watermarkPreview, clearWatermarkCache } from '../watermark.js';
-import { driveInfo, parseFolderId, folderName, previewSource } from '../drive.js';
+import { driveInfo, parseFolderId, folderName, previewSource, ignoreWords } from '../drive.js';
 import { queueStatus } from '../jobs.js';
 import { encodeDescriptor, invalidateFaces } from '../faces.js';
-import { getSetting } from '../pricing.js';
+import { getSetting, setSetting } from '../pricing.js';
 import { EVENT_CARD, EVENT_JOINS, eventCard, photoOut } from './public.js';
 import { fail, cleanText, toCents, uniqueSlug, photographerBalance } from '../util.js';
 
@@ -467,7 +467,7 @@ r.get('/drive', async (req, res) => {
       where s.photographer_id = $1 and s.kind = 'event' order by e.event_date desc`,
     [req.user.id],
   );
-  res.json({ info: driveInfo(), sources, eventSources });
+  res.json({ info: driveInfo(), sources, eventSources, ignore: await ignoreWords() });
 });
 
 function sourceFields(b) {
@@ -487,6 +487,15 @@ function sourceFields(b) {
     keep_in_drive: b.keep_in_drive !== false,
   };
 }
+
+// Palavras que fazem uma pasta ser ignorada (vale para todas as pastas ligadas; so o admin muda).
+r.put('/drive-ignore', async (req, res) => {
+  if (req.user.role !== 'admin') fail(403, 'Só o administrador muda esta lista.');
+  const words = [...new Set(String(req.body?.words || '').split(/[,;\n]+/)
+    .map((w) => w.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim()).filter((w) => /^[a-z0-9]{2,30}$/.test(w)))].slice(0, 40);
+  await setSetting('drive_ignore', words);
+  res.json({ ok: true, words });
+});
 
 r.post('/drive', async (req, res) => {
   if (!driveInfo().configured) fail(400, 'A integração com o Google Drive ainda não foi configurada no servidor.');

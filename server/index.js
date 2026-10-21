@@ -8,6 +8,7 @@ import { loadUser, hashPassword } from './auth.js';
 import { dirs } from './storage.js';
 import { HttpError, uniqueSlug } from './util.js';
 import { startJobs } from './jobs.js';
+import { progress } from './activity.js';
 import publicRoutes from './routes/public.js';
 import authRoutes from './routes/auth.js';
 import orderRoutes from './routes/orders.js';
@@ -100,4 +101,17 @@ async function seedAdmin() {
       [user.id, await uniqueSlug('photographers', 'tudo-eh-festa', null, 'user_id')],
     );
   }
+}
+
+// Desligando (deploy): solta a pasta do Drive que esta sendo importada para a nova copia assumir na hora,
+// em vez de esperar o sinal de vida expirar.
+for (const sig of ['SIGTERM', 'SIGINT']) {
+  process.once(sig, async () => {
+    const running = progress.sync?.source_id;
+    if (running) {
+      await db.query(`update drive_sources set last_status = 'na fila', sync_heartbeat = null where id = $1 and last_status = 'sincronizando'`, [running])
+        .catch(() => {});
+    }
+    process.exit(0);
+  });
 }
