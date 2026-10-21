@@ -37,8 +37,12 @@ async function mp(pathname, { method = 'GET', body, idempotency } = {}) {
     if (res.status >= 500 && attempt < 1) continue;
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
-      const detail = data?.errors?.[0]?.message || data?.message || data?.error || `HTTP ${res.status}`;
-      throw new Error(`Mercado Pago: ${detail}`);
+      // Guarda o detalhe completo (codigos e motivos por transacao) para o log; o token nunca entra aqui.
+      const errs = (data?.errors || []).map((e) => [e.code, e.message, ...(e.details || [])].filter(Boolean).join(' | '));
+      const detail = errs.join(' || ') || data?.message || data?.error || `HTTP ${res.status}`;
+      const err = new Error(`Mercado Pago (HTTP ${res.status}): ${detail}`);
+      err.mp = data;
+      throw err;
     }
     return data;
   }

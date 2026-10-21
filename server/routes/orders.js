@@ -103,9 +103,9 @@ r.post('/orders', requireUser, rateLimit('orders', 20, 60_000), async (req, res)
       redirect = pref.url;
     }
   } catch (err) {
-    console.error('[pedido]', order.code, err.message);
+    console.error('[pedido]', order.code, err.message, err.mp ? JSON.stringify(err.mp).slice(0, 1500) : '');
     await db.query(`update orders set status = 'cancelled' where id = $1`, [order.id]);
-    fail(502, 'Não conseguimos gerar o pagamento agora. Tente de novo em instantes.');
+    fail(503, 'Não conseguimos gerar o pagamento agora. Tente de novo em instantes ou escolha outra forma de pagamento.');
   }
   res.json({ code: order.code, redirect });
 });
