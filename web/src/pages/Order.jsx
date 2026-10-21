@@ -115,6 +115,11 @@ export default function Order() {
         <div className="alert alert-bad row" style={{ gap: 10 }}><XCircle size={18} /> Este pedido não está ativo. Se precisar de ajuda, fale com a gente.</div>
       )}
 
+      {order.status === 'paid' && order.receipt_url && (
+        <a className="small" href={order.receipt_url} target="_blank" rel="noreferrer" style={{ textDecoration: 'underline' }}>
+          Ver comprovante de pagamento{order.installments > 1 ? ` (${order.installments}x no cartão)` : ''}
+        </a>
+      )}
       {order.status === 'paid' && (
         <div className="row">
           <a className="btn btn-accent" href={`/api/download-zip?order=${order.code}`}><Download size={17} /> Baixar todas (.zip)</a>

@@ -17,6 +17,7 @@ export default function Cart() {
   const [couponText, setCouponText] = useState(coupon);
   const [method, setMethod] = useState('pix');
   const [cpf, setCpf] = useState('');
+  const [phone, setPhone] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const ids = items.map((i) => i.id);
@@ -41,7 +42,7 @@ export default function Cart() {
     setBusy(true);
     setError('');
     try {
-      const d = await api('/orders', { method: 'POST', body: { photoIds: ids, coupon, method, cpf } });
+      const d = await api('/orders', { method: 'POST', body: { photoIds: ids, coupon, method, cpf, phone: phone || undefined } });
       cart.clear();
       if (d.redirect) window.location.href = d.redirect;
       else nav(`/pedido/${d.code}`);
@@ -142,6 +143,12 @@ export default function Cart() {
                   <button type="button" className={`btn grow ${method === 'card' ? '' : 'btn-ghost'}`} onClick={() => setMethod('card')}><CreditCard size={17} /> Cartão</button>
                 )}
               </div>
+              {!user.phone && (
+                <label className="field"><span>Seu WhatsApp com DDD</span>
+                  <input className="input" required inputMode="tel" autoComplete="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="(48) 99999-0000" />
+                  <small>Para enviarmos o suporte do pedido, se precisar.</small>
+                </label>
+              )}
               {payments?.pix === 'mercadopago' && method === 'pix' && (
                 <label className="field"><span>CPF <small>(opcional, aparece no comprovante)</small></span>
                   <input className="input" inputMode="numeric" value={cpf} onChange={(e) => setCpf(e.target.value)} placeholder="000.000.000-00" />
@@ -152,7 +159,7 @@ export default function Cart() {
               )}
               {method === 'card' && payments?.card === 'mercadopago' && <span className="tiny muted">Você vai para a página segura do Mercado Pago.</span>}
               {error && <div className="alert alert-bad">{error}</div>}
-              <button className="btn btn-accent btn-lg" disabled={busy || !price?.total} onClick={checkout}>
+              <button className="btn btn-accent btn-lg" disabled={busy || !price?.total || (!user.phone && phone.replace(/\D/g, '').length < 10)} onClick={checkout}>
                 {busy ? 'Gerando pagamento…' : `Pagar ${money(price?.total)}`}
               </button>
               <span className="tiny muted row" style={{ gap: 6 }}><Lock size={13} /> Pagamento seguro. Fotos liberadas assim que o pagamento for confirmado.</span>

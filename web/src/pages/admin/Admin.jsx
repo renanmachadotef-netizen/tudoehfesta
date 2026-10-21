@@ -122,7 +122,10 @@ function Orders() {
               <td><Link to={`/pedido/${o.code}`} style={{ textDecoration: 'underline' }}>{o.code}</Link><div className="tiny muted">{o.items} fotos{o.coupon_code && ` · ${o.coupon_code}`}</div></td>
               <td className="small"><b>{o.buyer}</b><div>{o.email}</div>{o.phone && <a href={`https://wa.me/55${o.phone.replace(/\D/g, '').replace(/^55/, '')}`} target="_blank" rel="noreferrer">{o.phone}</a>}</td>
               <td className="small">{dateTimeBR(o.created_at)}</td>
-              <td className="small">{{ pix: 'Pix', cartao: 'Cartão', pix_manual: 'Pix manual' }[o.payment_method] || o.payment_method}</td>
+              <td className="small">{{ pix: 'Pix', cartao: 'Cartão', pix_manual: 'Pix manual' }[o.payment_method] || o.payment_method}
+                {o.payment_provider && o.payment_provider !== 'manual' && <div className="tiny muted">{o.payment_provider === 'infinitepay' ? 'InfinitePay' : 'Mercado Pago'}{o.installments > 1 ? ` · ${o.installments}x` : ''}</div>}
+                {o.ip_receipt_url && <a className="tiny" href={o.ip_receipt_url} target="_blank" rel="noreferrer" style={{ textDecoration: 'underline' }}>comprovante</a>}
+              </td>
               <td><StatusBadge status={o.status} /></td>
               <td className="num">{money(o.total_cents)}</td>
               <td><div className="row" style={{ flexWrap: 'nowrap', gap: 6 }}>

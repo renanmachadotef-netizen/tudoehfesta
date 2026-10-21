@@ -137,6 +137,7 @@ r.get('/orders', async (req, res) => {
   const q = cleanText(req.query.q, 80);
   const rows = await db.many(
     `select o.id, o.code, o.status, o.total_cents, o.discount_cents, o.payment_method, o.created_at, o.paid_at, o.coupon_code,
+            o.payment_provider, o.ip_receipt_url, o.installments,
             u.name as buyer, u.email, u.phone, count(oi.id)::int as items
        from orders o join users u on u.id = o.user_id left join order_items oi on oi.order_id = o.id
       where ($1::text is null or o.status = $1) and ($2::text is null or o.code ilike '%' || $2 || '%' or u.email ilike '%' || $2 || '%' or u.name ilike '%' || $2 || '%')

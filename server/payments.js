@@ -130,49 +130,8 @@ export async function findPaymentsByReference(code) {
   return data.results || [];
 }
 
-// ---------- InfinitePay (Checkout Integrado) ----------
-// Sem chave secreta: o lojista e identificado pela InfiniteTag (INFINITEPAY_HANDLE). Como o webhook nao
-// e assinado, toda confirmacao passa pelo payment_check antes de liberar as fotos.
-
-const IP = 'https://api.checkout.infinitepay.io';
-export const ipHandle = () => String(process.env.INFINITEPAY_HANDLE || '').trim().replace(/^\$/, '');
-export const ipEnabled = () => !!ipHandle();
-
-async function ipPost(pathname, body) {
-  const res = await fetch(IP + pathname, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(`InfinitePay: ${data.message || data.error || `HTTP ${res.status}`}`);
-  return data;
-}
-
-export async function createInfinitePayLink(order, items) {
-  const data = await ipPost('/links', {
-    handle: ipHandle(),
-    items: [{ quantity: 1, price: order.total_cents, description: `Fotos Tudo Eh Festa - ${items} foto${items > 1 ? 's' : ''} (pedido ${order.code})` }],
-    order_nsu: order.code,
-    redirect_url: `${config.publicUrl}/pedido/${order.code}`,
-    webhook_url: config.publicUrl.startsWith('https://') ? `${config.publicUrl}/api/webhooks/infinitepay` : undefined,
-    customer: { name: order.buyer_name, email: order.buyer_email },
-  });
-  const url = data.url || data.link || data.checkout_url || data.payment_url || data.data?.url;
-  if (!url) throw new Error('InfinitePay nao devolveu o link de pagamento');
-  return url;
-}
-
-// Confere na InfinitePay se o pedido foi pago (usado pelo webhook e pelo retorno do cliente).
-export async function checkInfinitePay(order, { transactionNsu, slug }) {
-  if (!ipEnabled() || !transactionNsu || !slug || order.status !== 'pending') return order;
-  await db.query('update orders set ip_slug = $2, ip_transaction_nsu = $3 where id = $1', [order.id, slug, transactionNsu]);
-  const r = await ipPost('/payment_check', { handle: ipHandle(), order_nsu: order.code, transaction_nsu: transactionNsu, slug });
-  if (r.success && r.paid) {
-    if (Number(r.amount) < order.total_cents) {
-      console.warn('[infinitepay] valor menor que o pedido', order.code, r.amount);
-      return order;
-    }
-    return (await markOrderPaid(order.id, r.capture_method === 'pix' ? 'pix' : 'cartao')) || order;
-  }
-  return order;
-}
+export { ipHandle, ipEnabled, createInfinitePayLink, checkInfinitePay } from './infinitepay.js';
+import { ipEnabled } from './infinitepay.js';
 
 // Qual servico atende cada forma de pagamento (configuravel no admin quando os dois estao ativos).
 export async function paymentOptions() {

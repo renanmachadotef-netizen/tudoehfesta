@@ -4,6 +4,7 @@ import { detectFacesOnServer } from './facepool.js';
 import { withOriginal, isDriveOriginal, copyToServer } from './originals.js';
 import { encodeDescriptor, invalidateFaces } from './faces.js';
 import { syncDueSources } from './drive.js';
+import { pollPendingInfinitePay, checkInfinitePay } from './infinitepay.js';
 
 // Fila em segundo plano guardada no proprio banco (sobrevive a reinicios):
 //   photos.needs_render -> refazer vitrine/miniatura (marca d'agua mudou, foto importada)
@@ -71,6 +72,22 @@ async function copyBatch() {
   return rows.length;
 }
 
+// Pedidos aguardando pagamento ha mais de 7 dias sao cancelados (antes, uma ultima conferencia na InfinitePay).
+let lastExpire = 0;
+async function expirePending() {
+  if (Date.now() - lastExpire < 10 * 60_000) return;
+  lastExpire = Date.now();
+  const rows = await db.many(`select * from orders where status = 'pending' and created_at < now() - interval '7 days' limit 50`);
+  for (const o of rows) {
+    if (o.payment_provider === 'infinitepay' && o.ip_transaction_nsu) {
+      const after = await checkInfinitePay(o).catch(() => o);
+      if (after.status === 'paid') continue;
+    }
+    await db.query(`update orders set status = 'cancelled' where id = $1 and status = 'pending'`, [o.id]);
+    console.log('[pedido] cancelado por falta de pagamento (7 dias):', o.code);
+  }
+}
+
 // "O sistema revisa e publica": evento importado do Drive vai ao ar quando todas as fotos estao prontas.
 async function autoPublish() {
   const rows = await db.many(
@@ -92,6 +109,8 @@ async function tick() {
   busy = true;
   try {
     await copyBatch();
+    await pollPendingInfinitePay().catch((err) => console.warn('[infinitepay]', err.message));
+    await expirePending();
     const rendered = await renderBatch();
     const indexed = await facesBatch();
     await autoPublish();

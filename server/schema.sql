@@ -231,3 +231,10 @@ alter table orders add column if not exists payment_provider text;
 alter table orders add column if not exists ip_slug text;
 alter table orders add column if not exists ip_transaction_nsu text;
 alter table orders add column if not exists checkout_url text;
+
+-- v4: InfinitePay (comprovante, parcelas, verificacao periodica) e expiracao de pedidos pendentes.
+alter table orders add column if not exists ip_checked_at timestamptz;
+alter table orders add column if not exists ip_receipt_url text;
+alter table orders add column if not exists installments integer;
+alter table orders add column if not exists paid_amount_cents integer;
+create index if not exists orders_pending_idx on orders (created_at) where status = 'pending';

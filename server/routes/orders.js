@@ -37,6 +37,8 @@ async function orderOut(order) {
     pix_expires_at: order.pix_expires_at,
     checkout_url: order.status === 'pending' ? order.checkout_url : null,
     payment_provider: order.payment_provider,
+    receipt_url: order.ip_receipt_url,
+    installments: order.installments,
     manual_pix: order.payment_method === 'pix_manual' && order.status === 'pending'
       ? { key: site.pix_key || '', name: site.pix_name || '', whatsapp: site.whatsapp || '' }
       : null,
@@ -48,6 +50,10 @@ async function orderOut(order) {
 
 r.post('/orders', requireUser, rateLimit('orders', 20, 60_000), async (req, res) => {
   const { photoIds, coupon, method = 'pix', cpf } = req.body || {};
+  // WhatsApp obrigatorio: pre-preenche o checkout e permite suporte/recuperacao do pedido.
+  const phone = cleanText(req.body?.phone || req.user.phone, 30);
+  if (String(phone || '').replace(/\D/g, '').length < 10) fail(400, 'Informe seu WhatsApp com DDD para finalizar o pedido.');
+  if (phone !== req.user.phone) await db.query('update users set phone = $2 where id = $1', [req.user.id, phone]);
   const priced = await priceCart(photoIds, coupon);
   if (!priced.items.length) fail(400, 'Seu carrinho está vazio.');
   if (priced.total < 100) fail(400, 'Valor mínimo do pedido: R$ 1,00.');
@@ -83,7 +89,7 @@ r.post('/orders', requireUser, rateLimit('orders', 20, 60_000), async (req, res)
   let redirect = null;
   try {
     if (provider === 'infinitepay') {
-      redirect = await createInfinitePayLink(order, priced.items.length);
+      redirect = await createInfinitePayLink(order, priced.groups, phone);
       await db.query('update orders set checkout_url = $2 where id = $1', [order.id, redirect]);
     } else if (payMethod === 'pix') {
       const pix = await createPix(order);
@@ -112,7 +118,7 @@ r.get('/orders/:code', requireUser, async (req, res) => {
       const transactionNsu = String(req.query.transaction_nsu || order.ip_transaction_nsu || '');
       const slug = String(req.query.slug || order.ip_slug || '');
       if (transactionNsu && slug) {
-        await checkInfinitePay(order, { transactionNsu, slug });
+        await checkInfinitePay(order, { transactionNsu, slug, receiptUrl: String(req.query.receipt_url || '') });
         order = await loadOrder(req.params.code, req.user);
       }
     } catch (err) {
@@ -232,7 +238,7 @@ r.post('/webhooks/infinitepay', async (req, res) => {
   try {
     const order = await db.one('select * from orders where code = $1', [String(b.order_nsu || '').toUpperCase()]);
     if (!order) return res.sendStatus(200);
-    const after = await checkInfinitePay(order, { transactionNsu: b.transaction_nsu, slug: b.invoice_slug || b.slug });
+    const after = await checkInfinitePay(order, { transactionNsu: b.transaction_nsu, slug: b.invoice_slug || b.slug, receiptUrl: b.receipt_url });
     res.sendStatus(after.status === 'paid' || order.status !== 'pending' ? 200 : 400);
   } catch (err) {
     console.error('[webhook infinitepay]', err.message);
