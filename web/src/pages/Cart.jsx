@@ -72,6 +72,7 @@ export default function Cart() {
     byEvent.get(k).items.push(it);
   }
   const groupPrice = (slug) => price?.groups.find((g) => g.slug === slug);
+  const freshThumb = new Map((price?.items || []).map((i) => [i.photo_id, i.thumb]));
 
   return (
     <div className="container section-sm">
@@ -93,7 +94,7 @@ export default function Cart() {
                 <div className="studio-photos" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(96px, 1fr))' }}>
                   {g.items.map((it) => (
                     <div key={it.id} className="studio-photo">
-                      <img src={it.thumb} alt="" loading="lazy" />
+                      <img src={freshThumb.get(it.id) || it.thumb} alt="" loading="lazy" />
                       <div className="acts" style={{ display: 'flex' }}>
                         <button onClick={() => cart.remove(it.id)} aria-label="Remover"><Trash2 size={14} /></button>
                       </div>

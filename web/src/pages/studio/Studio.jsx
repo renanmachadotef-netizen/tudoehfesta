@@ -1,5 +1,5 @@
 import { NavLink, Navigate, Route, Routes, Link } from 'react-router-dom';
-import { LayoutDashboard, FolderOpen, Receipt, Wallet, Tag, User, Plus, Clock } from 'lucide-react';
+import { LayoutDashboard, FolderOpen, Receipt, Wallet, Tag, User, Plus, Clock, HardDrive, Stamp } from 'lucide-react';
 import { useSite, useTitle } from '../../lib/site.jsx';
 import { Loading } from '../../components/Layout.jsx';
 import Dashboard from './Dashboard.jsx';
@@ -9,6 +9,8 @@ import Sales from './Sales.jsx';
 import Finance from './Finance.jsx';
 import Coupons from './Coupons.jsx';
 import Profile from './Profile.jsx';
+import Drive from './Drive.jsx';
+import Watermark from './Watermark.jsx';
 
 export default function Studio() {
   const { user, ready } = useSite();
@@ -29,6 +31,8 @@ export default function Studio() {
             <NavLink to="/painel/vendas"><Receipt size={18} /> Vendas</NavLink>
             <NavLink to="/painel/financeiro"><Wallet size={18} /> Financeiro</NavLink>
             <NavLink to="/painel/cupons"><Tag size={18} /> Cupons</NavLink>
+            <NavLink to="/painel/drive"><HardDrive size={18} /> Google Drive</NavLink>
+            <NavLink to="/painel/marca-dagua"><Stamp size={18} /> Marca d’água</NavLink>
           </>
         )}
         <NavLink to="/painel/perfil"><User size={18} /> Perfil e Pix</NavLink>
@@ -54,6 +58,8 @@ export default function Studio() {
               <Route path="vendas" element={<Sales />} />
               <Route path="financeiro" element={<Finance />} />
               <Route path="cupons" element={<Coupons />} />
+              <Route path="drive" element={<Drive />} />
+              <Route path="marca-dagua" element={<Watermark />} />
             </>
           ) : (
             <Route index element={<Navigate to="/painel/perfil" replace />} />

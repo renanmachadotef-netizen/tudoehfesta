@@ -1,11 +1,12 @@
 import { useState } from 'react';
 import { Link, NavLink, Navigate, Route, Routes } from 'react-router-dom';
-import { LayoutDashboard, Users, Receipt, Wallet, FolderOpen, Tag, Settings, UserCog, Camera } from 'lucide-react';
+import { LayoutDashboard, Users, Receipt, Wallet, FolderOpen, Tag, Settings, UserCog, Camera, Stamp } from 'lucide-react';
 import { api, uploadWithProgress } from '../../lib/api.js';
 import { useApi, useSite, useTitle } from '../../lib/site.jsx';
 import { money, dateTimeBR, dateBR, compact, centsToInput } from '../../lib/format.js';
 import { Loading, ErrorBox, Empty } from '../../components/Layout.jsx';
 import { Bars, PageHead } from '../studio/Studio.jsx';
+import WatermarkEditor from '../../components/WatermarkEditor.jsx';
 import { StatusBadge } from '../Account.jsx';
 import { EVENT_STATUS } from '../studio/EventsList.jsx';
 
@@ -248,6 +249,34 @@ function Categories() {
   );
 }
 
+function WatermarkPage() {
+  const { toast } = useSite();
+  const { data, loading, reload } = useApi('/admin/watermark');
+  const sys = useApi('/admin/system');
+  const [saving, setSaving] = useState(false);
+  if (loading) return <Loading />;
+  const save = async (wm) => {
+    setSaving(true);
+    try {
+      const d = await api('/admin/watermark', { method: 'PUT', body: { watermark: wm } });
+      toast(d.rerender ? `Marca salva. Refazendo ${d.rerender} vitrines em segundo plano…` : 'Marca salva');
+      reload();
+      sys.reload();
+    } finally {
+      setSaving(false);
+    }
+  };
+  const q = sys.data?.queue;
+  return (
+    <div className="stack" style={{ gap: 18 }}>
+      <PageHead title="Marca d’água padrão" />
+      <p className="small muted">Vale para todos os eventos marcados como “Padrão do site” (e para fotógrafos que ainda não cadastraram a própria marca). Cada evento também pode sair sem marca.</p>
+      {q && (q.render > 0 || q.faces > 0) && <div className="alert alert-warn">Fila do servidor: {q.render} vitrine(s) para refazer · {q.faces} foto(s) procurando rostos.</div>}
+      <div className="card"><WatermarkEditor base="/admin" value={data.watermark} saving={saving} onSave={save} /></div>
+    </div>
+  );
+}
+
 function UsersPage() {
   const [q, setQ] = useState('');
   const [query, setQuery] = useState('');
@@ -272,6 +301,22 @@ function UsersPage() {
               <td><button className="btn btn-sm btn-ghost" onClick={() => reset(u)}>Nova senha</button></td></tr>
           ))}</tbody>
         </table></div>
+      )}
+    </div>
+  );
+}
+
+function DriveStatus() {
+  const { data } = useApi('/admin/system');
+  if (!data) return null;
+  const d = data.drive;
+  return (
+    <div className="card stack">
+      <h3>Google Drive</h3>
+      {d.configured ? (
+        <div className="alert alert-ok">Ativo ({d.mode === 'service_account' ? 'conta de serviço' : 'chave de API'}), verificando as pastas a cada {d.sync_minutes} min.{d.share_with && <> Os fotógrafos compartilham as pastas com <b style={{ userSelect: 'all' }}>{d.share_with}</b>.</>}</div>
+      ) : (
+        <div className="alert alert-warn">Não configurado. No Easypanel (site → Environment), adicione <code>GOOGLE_SERVICE_ACCOUNT_JSON</code> (recomendado: pastas ficam privadas) ou <code>GOOGLE_API_KEY</code> (pastas precisam estar públicas por link).</div>
       )}
     </div>
   );
@@ -341,6 +386,7 @@ function SettingsPage() {
           {s.site?.logo && <img src={s.site.logo} alt="logo" style={{ height: 36, background: 'var(--surface)', borderRadius: 6, padding: 4 }} />}
         </div>
       </div>
+      <DriveStatus />
       <button className="btn btn-accent" style={{ alignSelf: 'flex-start' }}>Salvar configurações</button>
     </form>
   );
@@ -361,6 +407,7 @@ export default function Admin() {
         <NavLink to="/admin/saques"><Wallet size={18} /> Saques</NavLink>
         <NavLink to="/admin/eventos"><FolderOpen size={18} /> Eventos</NavLink>
         <NavLink to="/admin/categorias"><Tag size={18} /> Categorias</NavLink>
+        <NavLink to="/admin/marca-dagua"><Stamp size={18} /> Marca d’água</NavLink>
         <NavLink to="/admin/usuarios"><UserCog size={18} /> Usuários</NavLink>
         <NavLink to="/admin/config"><Settings size={18} /> Configurações</NavLink>
         <div className="side-title">Meu estúdio</div>
@@ -374,6 +421,7 @@ export default function Admin() {
           <Route path="saques" element={<Payouts />} />
           <Route path="eventos" element={<Events />} />
           <Route path="categorias" element={<Categories />} />
+          <Route path="marca-dagua" element={<WatermarkPage />} />
           <Route path="usuarios" element={<UsersPage />} />
           <Route path="config" element={<SettingsPage />} />
           <Route path="*" element={<Navigate to="/admin" replace />} />

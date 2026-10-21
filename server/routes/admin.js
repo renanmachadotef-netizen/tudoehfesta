@@ -7,6 +7,9 @@ import { getSetting, setSetting } from '../pricing.js';
 import { markOrderPaid, mpEnabled } from '../payments.js';
 import { dirs, storeAsset } from '../storage.js';
 import { invalidateFaces } from '../faces.js';
+import { normalizeWatermark, watermarkPreview, clearWatermarkCache } from '../watermark.js';
+import { queueStatus } from '../jobs.js';
+import { driveInfo } from '../drive.js';
 import { EVENT_CARD, EVENT_JOINS, eventCard } from './public.js';
 import { fail, cleanText, slugify, photographerBalance } from '../util.js';
 
@@ -232,6 +235,40 @@ r.post('/settings/:asset', upload.single('file'), async (req, res) => {
   const cur = await getSetting('site', {});
   await setSetting('site', { ...cur, [kind]: url });
   res.json({ url });
+});
+
+// ---------- Marca d'agua padrao do site ----------
+
+r.get('/watermark', async (_req, res) => {
+  res.json({ watermark: normalizeWatermark(await getSetting('watermark', null)), queue: await queueStatus() });
+});
+
+r.put('/watermark', async (req, res) => {
+  const wm = normalizeWatermark(req.body?.watermark);
+  await setSetting('watermark', wm);
+  clearWatermarkCache();
+  // Refaz as vitrines de quem usa a marca do site (inclusive fotografos que escolheram a propria mas nao cadastraram).
+  const r2 = await db.query(
+    `update photos set needs_render = true where event_id in (
+       select e.id from events e left join photographers ph on ph.user_id = e.photographer_id
+        where e.watermark_mode = 'site' or (e.watermark_mode = 'photographer' and ph.watermark is null))`,
+  );
+  res.json({ ok: true, rerender: r2.rowCount ?? r2.affectedRows ?? 0 });
+});
+
+r.post('/watermark/image', upload.single('file'), async (req, res) => {
+  if (!req.file) fail(400, 'Envie o logo em PNG (de preferência com fundo transparente).');
+  res.json({ url: await storeAsset(req.file.path, 'marcas', { maxSide: 1200, png: true }) });
+});
+
+r.post('/watermark/preview', async (req, res) => {
+  res.setHeader('Content-Type', 'image/webp');
+  res.setHeader('Cache-Control', 'no-store');
+  res.end(await watermarkPreview(normalizeWatermark(req.body?.watermark)));
+});
+
+r.get('/system', async (_req, res) => {
+  res.json({ drive: driveInfo(), queue: await queueStatus() });
 });
 
 export default r;

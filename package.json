@@ -4,7 +4,9 @@
   "version": "1.0.0",
   "type": "module",
   "description": "Tudo Eh Festa - plataforma de venda de fotos de eventos com reconhecimento facial",
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "dev": "node scripts/dev.js",
     "dev:server": "node --watch server/index.js",
@@ -13,6 +15,9 @@
     "start": "node server/index.js"
   },
   "dependencies": {
+    "@tensorflow/tfjs": "4.22.0",
+    "@tensorflow/tfjs-backend-wasm": "4.22.0",
+    "@vladmandic/face-api": "^1.7.15",
     "express": "^5.2.1",
     "fflate": "^0.8.3",
     "multer": "^2.0.2",
@@ -22,7 +27,6 @@
   "devDependencies": {
     "@electric-sql/pglite": "^0.3.15",
     "@vitejs/plugin-react": "^6.0.1",
-    "@vladmandic/face-api": "^1.7.15",
     "lucide-react": "^1.60.0",
     "qrcode": "^1.5.4",
     "react": "^19.2.0",

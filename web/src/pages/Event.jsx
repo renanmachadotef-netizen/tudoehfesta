@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { Calendar, MapPin, Camera, Share2, ShoppingBag, ScanFace, Tag } from 'lucide-react';
+import { Calendar, MapPin, Camera, Share2, ShoppingBag, ScanFace, Tag, Lock } from 'lucide-react';
 import { api } from '../lib/api.js';
 import { useSite, useTitle } from '../lib/site.jsx';
 import { cart, useCart } from '../lib/cart.js';
@@ -60,7 +60,7 @@ export default function EventPage() {
     setMine(null);
     setTab('todas');
     api(`/events/${slug}`).then((d) => setEvent(d.event)).catch(setError);
-    api(`/events/${slug}/photos?limit=200`).then((d) => setPhotos({ list: d.photos, more: d.more, loading: false })).catch(() => setPhotos({ list: [], more: false, loading: false }));
+    api(`/events/${slug}/photos?limit=200`).then((d) => setPhotos({ list: d.photos, more: d.more, loading: false, hidden: !!d.hidden })).catch(() => setPhotos({ list: [], more: false, loading: false }));
   }, [slug]);
 
   const eventInfo = useMemo(() => (event ? { event_title: event.title, event_slug: event.slug, price_cents: event.price_cents } : {}), [event]);
@@ -96,6 +96,7 @@ export default function EventPage() {
   if (!event) return <Loading />;
 
   const inThisEvent = items.filter((i) => i.event_slug === event.slug).length;
+  const hidden = photos.hidden;
   const shown = tab === 'minhas' ? mine || [] : photos.list;
   const mineNotInCart = (mine || []).filter((p) => !owned.has(p.id) && !items.some((i) => i.id === p.id));
 
@@ -127,7 +128,7 @@ export default function EventPage() {
 
       {event.photo_count > 0 && (
         event.face_count > 0 ? (
-          <SelfieSearch onSelfie={search} busy={searching} title="Ache suas fotos neste evento" subtitle="Tire uma selfie e mostramos só as fotos em que você aparece neste evento." />
+          <SelfieSearch onSelfie={search} busy={searching} title="Ache suas fotos neste evento" subtitle={event.hide_gallery ? 'As fotos deste evento são protegidas. Tire uma selfie para ver as suas.' : 'Tire uma selfie e mostramos só as fotos em que você aparece neste evento.'} />
         ) : (
           <div className="alert">Este evento ainda não tem reconhecimento facial: navegue pelas fotos abaixo.</div>
         )
@@ -135,7 +136,7 @@ export default function EventPage() {
 
       <div className="stack">
         <div className="tabs">
-          <button className={tab === 'todas' ? 'active' : ''} onClick={() => setTab('todas')}>Todas as fotos ({event.photo_count})</button>
+          {!hidden && <button className={tab === 'todas' ? 'active' : ''} onClick={() => setTab('todas')}>Todas as fotos ({event.photo_count})</button>}
           {mine && <button className={tab === 'minhas' ? 'active' : ''} onClick={() => setTab('minhas')}><ScanFace size={15} style={{ verticalAlign: -2 }} /> Minhas fotos ({mine.length})</button>}
         </div>
         {tab === 'minhas' && mine && (
@@ -151,6 +152,13 @@ export default function EventPage() {
           ) : (
             <Empty icon={ScanFace} title="Não encontramos você neste evento">Tente uma selfie mais de frente e com boa luz, ou procure nas fotos.</Empty>
           )
+        )}
+        {hidden && tab === 'todas' && (
+          <div className="hidden-gallery">
+            <Lock size={28} />
+            <b>Fotos protegidas</b>
+            <p className="muted small" style={{ maxWidth: 460 }}>Neste evento as fotos não ficam expostas: cada pessoa vê só as fotos em que aparece. Tire uma selfie acima para encontrar as suas entre as {event.photo_count} fotos.</p>
+          </div>
         )}
         {photos.loading ? <Loading /> : shown.length > 0 && <PhotoGrid photos={shown} owned={owned} eventInfo={eventInfo} />}
         {tab === 'todas' && photos.more && <div className="center"><button className="btn btn-ghost" onClick={loadMore}>Carregar mais fotos</button></div>}

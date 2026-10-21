@@ -4,3 +4,4 @@ data
 web/public/models
 .env
 *.local
+.tmp

@@ -1,4 +1,5 @@
 import { db } from './db.js';
+import { thumbUrl } from './storage.js';
 
 export async function getSetting(key, fallback = null) {
   const row = await db.one('select value from settings where key = $1', [key]);
@@ -31,7 +32,7 @@ export async function priceCart(photoIds, couponCode) {
   if (!ids.length) return { groups: [], items: [], subtotal: 0, discount: 0, total: 0, coupon: null };
 
   const rows = await db.many(
-    `select p.id as photo_id, p.event_id, e.title, e.slug, e.price_cents, e.pack_price_cents, e.discount_tiers,
+    `select p.id as photo_id, p.event_id, p.key, e.title, e.slug, e.price_cents, e.pack_price_cents, e.discount_tiers,
             e.photographer_id, ph.commission_pct
        from photos p
        join events e on e.id = p.event_id and e.status = 'published'
@@ -53,7 +54,7 @@ export async function priceCart(photoIds, couponCode) {
   const byEvent = new Map();
   for (const r of rows) {
     if (!byEvent.has(r.event_id)) byEvent.set(r.event_id, { meta: r, photos: [] });
-    byEvent.get(r.event_id).photos.push(r.photo_id);
+    byEvent.get(r.event_id).photos.push(r);
   }
 
   const groups = [];
@@ -79,7 +80,8 @@ export async function priceCart(photoIds, couponCode) {
     const pct = meta.commission_pct != null ? Number(meta.commission_pct) : globalPct;
     const each = Math.floor(total / n);
     let rest = total - each * n;
-    for (const photoId of photos) {
+    for (const ph of photos) {
+      const photoId = ph.photo_id;
       const price = each + (rest-- > 0 ? 1 : 0);
       const commission = Math.round((price * pct) / 100);
       items.push({
@@ -89,6 +91,7 @@ export async function priceCart(photoIds, couponCode) {
         price_cents: price,
         commission_cents: commission,
         photographer_cents: price - commission,
+        thumb: thumbUrl(ph.event_id, photoId, ph.key),
       });
     }
     groups.push({

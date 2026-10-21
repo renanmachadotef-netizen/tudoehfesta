@@ -171,3 +171,54 @@ insert into settings (key, value) values
 on conflict (key) do nothing;
 
 alter table orders add column if not exists coupon_code text;
+
+-- v2: galeria oculta, marca d'agua por evento, importacao do Google Drive, processamento em segundo plano.
+alter table events add column if not exists hide_gallery boolean not null default false;
+alter table events add column if not exists watermark_mode text not null default 'site';
+alter table events add column if not exists drive_folder_id text;
+alter table events add column if not exists drive_source_id integer;
+alter table events add column if not exists auto_publish boolean not null default false;
+create unique index if not exists events_drive_folder_idx on events (drive_folder_id) where drive_folder_id is not null;
+
+-- key: codigo aleatorio no nome do arquivo da vitrine (muda a cada nova renderizacao e impede adivinhar enderecos).
+alter table photos add column if not exists key text;
+alter table photos add column if not exists needs_render boolean not null default false;
+alter table photos add column if not exists needs_faces boolean not null default false;
+alter table photos add column if not exists drive_file_id text;
+create unique index if not exists photos_drive_file_idx on photos (drive_file_id) where drive_file_id is not null;
+create index if not exists photos_pending_idx on photos (id) where needs_render or needs_faces;
+
+alter table photographers add column if not exists watermark jsonb;
+
+create table if not exists drive_sources (
+  id serial primary key,
+  photographer_id integer not null references users(id) on delete cascade,
+  folder_id text not null,
+  name text,
+  year integer not null,
+  category_id integer references categories(id) on delete set null,
+  price_cents integer not null default 1500,
+  pack_price_cents integer,
+  auto_publish boolean not null default true,
+  hide_gallery boolean not null default false,
+  watermark_mode text not null default 'site',
+  active boolean not null default true,
+  last_sync_at timestamptz,
+  last_status text,
+  last_error text,
+  created_at timestamptz not null default now(),
+  unique (photographer_id, folder_id)
+);
+
+-- Arquivos do Drive que a revisao automatica recusou (para nao baixar de novo a cada rodada).
+create table if not exists drive_skips (
+  drive_file_id text primary key,
+  source_id integer not null references drive_sources(id) on delete cascade,
+  name text,
+  reason text not null,
+  created_at timestamptz not null default now()
+);
+
+insert into settings (key, value) values
+  ('watermark', '{"type": "text", "text": "tudoehfesta.com", "image": null, "opacity": 0.35, "layout": "tiled"}')
+on conflict (key) do nothing;

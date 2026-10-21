@@ -11,18 +11,29 @@ const r = Router();
 // Colunas comuns para cartoes de evento.
 export const EVENT_CARD = `
   e.id, e.slug, e.title, e.event_date, e.city, e.venue, e.status, e.price_cents, e.pack_price_cents,
-  e.discount_tiers, e.category_id, c.name as category_name, c.slug as category_slug,
+  e.discount_tiers, e.category_id, c.name as category_name, c.slug as category_slug, e.hide_gallery, e.watermark_mode,
   ph.display_name as photographer_name, ph.slug as photographer_slug, ph.avatar_path as photographer_avatar,
-  (select count(*) from photos p where p.event_id = e.id)::int as photo_count,
-  coalesce(e.cover_photo_id, (select min(p.id) from photos p where p.event_id = e.id)) as cover_id`;
+  (select count(*) from photos p where p.event_id = e.id and p.key is not null)::int as photo_count,
+  cv.id as cover_id, cv.key as cover_key`;
+// Capa: a escolhida pelo fotografo ou a primeira foto. Em evento com galeria oculta so a escolhida
+// (uma foto qualquer poderia expor quem nao quer aparecer).
 export const EVENT_JOINS = `
   from events e
   left join categories c on c.id = e.category_id
-  left join photographers ph on ph.user_id = e.photographer_id`;
+  left join photographers ph on ph.user_id = e.photographer_id
+  left join lateral (
+    select p.id, p.key from photos p
+     where p.key is not null and p.id = coalesce(e.cover_photo_id,
+       case when e.hide_gallery then null else (select min(p2.id) from photos p2 where p2.event_id = e.id and p2.key is not null) end)
+  ) cv on true`;
 
 export function eventCard(row) {
-  const { cover_id, ...rest } = row;
-  return { ...rest, cover: cover_id ? previewUrl(row.id, cover_id) : null, cover_thumb: cover_id ? thumbUrl(row.id, cover_id) : null };
+  const { cover_id, cover_key, ...rest } = row;
+  return {
+    ...rest,
+    cover: cover_id ? previewUrl(row.id, cover_id, cover_key) : null,
+    cover_thumb: cover_id ? thumbUrl(row.id, cover_id, cover_key) : null,
+  };
 }
 
 export const photoOut = (p) => ({
@@ -30,8 +41,8 @@ export const photoOut = (p) => ({
   event_id: p.event_id,
   w: p.width,
   h: p.height,
-  thumb: thumbUrl(p.event_id, p.id),
-  preview: previewUrl(p.event_id, p.id),
+  thumb: thumbUrl(p.event_id, p.id, p.key),
+  preview: previewUrl(p.event_id, p.id, p.key),
 });
 
 r.get('/site', async (req, res) => {
@@ -104,14 +115,15 @@ r.get('/events/:slug', async (req, res) => {
 });
 
 r.get('/events/:slug/photos', async (req, res) => {
-  const ev = await db.one('select id, status, photographer_id from events where slug = $1', [req.params.slug]);
-  if (!ev || (ev.status !== 'published' && req.user?.role !== 'admin' && req.user?.id !== ev.photographer_id)) {
-    fail(404, 'Evento não encontrado.');
-  }
+  const ev = await db.one('select id, status, photographer_id, hide_gallery from events where slug = $1', [req.params.slug]);
+  const owner = req.user?.role === 'admin' || req.user?.id === ev?.photographer_id;
+  if (!ev || (ev.status !== 'published' && !owner)) fail(404, 'Evento não encontrado.');
+  // Galeria oculta: as fotos so aparecem pela busca por selfie.
+  if (ev.hide_gallery && !owner) return res.json({ photos: [], more: false, hidden: true });
   const limit = Math.min(Number(req.query.limit) || 120, 300);
   const offset = Math.max(Number(req.query.offset) || 0, 0);
   const rows = await db.many(
-    `select id, event_id, width, height from photos where event_id = $1 order by sort_key nulls last, id limit $2 offset $3`,
+    `select id, event_id, width, height, key from photos where event_id = $1 and key is not null order by sort_key nulls last, id limit $2 offset $3`,
     [ev.id, limit + 1, offset],
   );
   res.json({ photos: rows.slice(0, limit).map(photoOut), more: rows.length > limit });
@@ -121,8 +133,9 @@ r.get('/photos', async (req, res) => {
   const ids = String(req.query.ids || '').split(',').map(Number).filter(Boolean).slice(0, 500);
   if (!ids.length) return res.json({ photos: [] });
   const rows = await db.many(
-    `select p.id, p.event_id, p.width, p.height, e.title as event_title, e.slug as event_slug, e.price_cents
-       from photos p join events e on e.id = p.event_id and e.status = 'published' where p.id = any($1::int[])`,
+    `select p.id, p.event_id, p.width, p.height, p.key, e.title as event_title, e.slug as event_slug, e.price_cents
+       from photos p join events e on e.id = p.event_id and e.status = 'published' and not e.hide_gallery
+      where p.id = any($1::int[]) and p.key is not null`,
     [ids],
   );
   res.json({ photos: rows.map((p) => ({ ...photoOut(p), event_title: p.event_title, event_slug: p.event_slug, price_cents: p.price_cents })) });
@@ -147,8 +160,8 @@ r.post('/faces/search', rateLimit('faces', 40, 60_000), async (req, res) => {
   if (!hits.length) return res.json({ photos: [], events: [] });
   const ids = hits.map((h) => h.photoId);
   const rows = await db.many(
-    `select p.id, p.event_id, p.width, p.height from photos p join events e on e.id = p.event_id and e.status = 'published'
-      where p.id = any($1::int[])`,
+    `select p.id, p.event_id, p.width, p.height, p.key from photos p join events e on e.id = p.event_id and e.status = 'published'
+      where p.id = any($1::int[]) and p.key is not null`,
     [ids],
   );
   const byId = new Map(rows.map((p) => [p.id, p]));

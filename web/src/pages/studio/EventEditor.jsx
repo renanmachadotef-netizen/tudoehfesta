@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { Upload, Trash2, Star, ScanFace, Plus, X, ExternalLink, Copy, Download, MessageCircle, ArrowLeft } from 'lucide-react';
+import { Upload, Trash2, Star, ScanFace, Plus, X, ExternalLink, Copy, Download, MessageCircle, ArrowLeft, EyeOff, HardDrive, RefreshCw } from 'lucide-react';
 import { api, uploadWithProgress } from '../../lib/api.js';
 import { useSite } from '../../lib/site.jsx';
 import { centsToInput, money } from '../../lib/format.js';
@@ -8,7 +8,7 @@ import { detectFaces, fileToCanvas, loadFaceApi } from '../../lib/faces.js';
 import { Loading, ErrorBox } from '../../components/Layout.jsx';
 import { EVENT_STATUS } from './EventsList.jsx';
 
-const blank = { title: '', event_date: new Date().toISOString().slice(0, 10), category_id: '', city: '', venue: '', description: '', price: '15,00', pack_price: '', discount_tiers: [{ min: 5, pct: 20 }], status: 'draft' };
+const blank = { title: '', event_date: new Date().toISOString().slice(0, 10), category_id: '', city: '', venue: '', description: '', price: '15,00', pack_price: '', discount_tiers: [{ min: 5, pct: 20 }], status: 'draft', hide_gallery: false, watermark_mode: 'site' };
 
 function EventForm({ initial, onSaved }) {
   const { categories = [], toast } = useSite();
@@ -59,6 +59,20 @@ function EventForm({ initial, onSaved }) {
       </div>
       <label className="field"><span>Descrição <small>(opcional)</small></span><textarea className="textarea" value={f.description || ''} onChange={set('description')} /></label>
 
+      <div className="grid-2">
+        <label className="field"><span>Marca d’água</span>
+          <select className="select" value={f.watermark_mode} onChange={set('watermark_mode')}>
+            <option value="site">Padrão do site</option>
+            <option value="photographer">Minha marca</option>
+            <option value="none">Sem marca d’água</option>
+          </select>
+          <small>Trocar refaz as vitrines em segundo plano. <Link to="/painel/marca-dagua" style={{ textDecoration: 'underline' }}>Configurar minha marca</Link></small>
+        </label>
+        <label className="check" style={{ alignSelf: 'center' }}>
+          <input type="checkbox" checked={!!f.hide_gallery} onChange={(e) => setF({ ...f, hide_gallery: e.target.checked })} />
+          <span><b><EyeOff size={14} style={{ verticalAlign: -2 }} /> Não exibir as fotos do evento</b><br /><span className="muted">A galeria fica oculta: cada pessoa só vê as fotos em que aparece, pela busca por selfie.</span></span>
+        </label>
+      </div>
       <div className="card-flat stack">
         <b>Preços</b>
         <div className="grid-2">
@@ -111,26 +125,31 @@ function Uploader({ eventId, onUploaded }) {
     const s = { total: files.length, done: 0, failed: 0, dup: 0, faces: 0, status: '', errors: [], finished: false };
     const push = (patch) => setSt((cur) => ({ ...(cur || s), ...patch(cur || s) }));
     setSt(s);
+    let browserFaces = useFaces;
     if (useFaces) {
       try {
         await loadFaceApi((m) => push(() => ({ status: m })));
       } catch {
-        push(() => ({ status: 'Reconhecimento facial indisponível neste navegador: enviando sem rostos.' }));
+        browserFaces = false;
+        push(() => ({ status: 'Reconhecimento facial indisponível neste navegador: o servidor vai procurar os rostos depois do envio.' }));
       }
     }
     const inflight = new Set();
     for (const file of files) {
       if (cancel.current) break;
       let faces = [];
-      if (useFaces) {
+      let facesDone = false;
+      if (browserFaces) {
         push(() => ({ status: `Analisando rostos: ${file.name}` }));
         try {
           faces = await detectFaces(await fileToCanvas(file, 1400));
-        } catch { /* foto sem rosto detectavel */ }
+          facesDone = true;
+        } catch { /* falhou neste arquivo: o servidor tenta depois */ }
       }
       while (inflight.size >= 3) await Promise.race(inflight);
       const form = new FormData();
       form.append('faces', JSON.stringify(faces.map(({ d, box }) => ({ d, box }))));
+      if (facesDone) form.append('faces_done', '1');
       form.append('name', file.name);
       form.append('sort_key', file.name);
       form.append('file', file);
@@ -155,7 +174,7 @@ function Uploader({ eventId, onUploaded }) {
   return (
     <div className="card stack">
       <div className="row between"><h3>Enviar fotos</h3>
-        <label className="check" style={{ alignItems: 'center' }}><input type="checkbox" checked={useFaces} disabled={running} onChange={(e) => setUseFaces(e.target.checked)} /> <ScanFace size={16} /> Reconhecimento facial</label>
+        <label className="check" style={{ alignItems: 'center' }}><input type="checkbox" checked={useFaces} disabled={running} onChange={(e) => setUseFaces(e.target.checked)} /> <ScanFace size={16} /> Rostos no navegador (mais rápido)</label>
       </div>
       {!running && (
         <div
@@ -214,7 +233,7 @@ function ShareKit({ event }) {
   );
 }
 
-function PhotosManager({ event, photos, setPhotos, onCover }) {
+function PhotosManager({ event, photos, setPhotos, onCover, onQueued }) {
   const { toast } = useSite();
   const del = async (p) => {
     if (!confirm('Excluir esta foto?')) return;
@@ -234,7 +253,11 @@ function PhotosManager({ event, photos, setPhotos, onCover }) {
   const noFaces = photos.filter((p) => !p.faces).length;
   return (
     <div className="card stack">
-      <div className="row between"><h3>Fotos ({photos.length})</h3><span className="small muted">{noFaces} sem rosto detectado</span></div>
+      <div className="row between"><h3>Fotos ({photos.length})</h3>
+        <span className="row small muted">{noFaces} sem rosto detectado
+          {noFaces > 0 && <button className="btn btn-sm btn-soft" onClick={async () => { const d = await api(`/studio/events/${event.id}/reindex`, { method: 'POST' }); toast(`${d.queued} foto(s) na fila do servidor`); onQueued?.(d.queued); }}><RefreshCw size={13} /> Procurar de novo</button>}
+        </span>
+      </div>
       <div className="studio-photos">
         {photos.map((p) => (
           <div key={p.id} className="studio-photo">
@@ -244,7 +267,7 @@ function PhotosManager({ event, photos, setPhotos, onCover }) {
               {!p.sold && <button title="Excluir" onClick={() => del(p)}><Trash2 size={14} /></button>}
             </div>
             <div className="ov">
-              <span className="badge" style={{ background: 'rgba(255,255,255,.9)' }}><ScanFace size={11} /> {p.faces || 0}</span>
+              <span className="badge" style={{ background: 'rgba(255,255,255,.9)' }}><ScanFace size={11} /> {p.pending ? '…' : p.faces || 0}</span>
               {p.sold > 0 && <span className="badge badge-ok">{p.sold} venda(s)</span>}
               {event.cover_photo_id === p.id && <span className="badge badge-accent">Capa</span>}
             </div>
@@ -261,13 +284,28 @@ export default function EventEditor() {
   const { toast, refresh } = useSite();
   const [event, setEvent] = useState(id ? null : blank);
   const [photos, setPhotos] = useState([]);
+  const [queue, setQueue] = useState(null);
   const [error, setError] = useState(null);
 
   useEffect(() => {
     if (!id) { setEvent(blank); setPhotos([]); return; }
-    api(`/studio/events/${id}`).then((d) => setEvent(d.event)).catch(setError);
+    api(`/studio/events/${id}`).then((d) => { setEvent(d.event); setQueue(d.queue); }).catch(setError);
     api(`/studio/events/${id}/photos`).then((d) => setPhotos(d.photos)).catch(() => {});
   }, [id]);
+
+  // Enquanto o servidor refaz vitrines ou procura rostos, atualiza a cada 4 s.
+  const busy = queue && (queue.render > 0 || queue.faces > 0);
+  useEffect(() => {
+    if (!busy || !id) return;
+    const t = setInterval(async () => {
+      const d = await api(`/studio/events/${id}`).catch(() => null);
+      if (!d) return;
+      setEvent(d.event);
+      setQueue(d.queue);
+      if (!(d.queue.render || d.queue.faces)) api(`/studio/events/${id}/photos`).then((x) => setPhotos(x.photos)).catch(() => {});
+    }, 4000);
+    return () => clearInterval(t);
+  }, [busy, id]);
 
   if (error) return <ErrorBox error={error} />;
   if (!event) return <Loading />;
@@ -275,7 +313,7 @@ export default function EventEditor() {
   const initial = event.id ? {
     id: event.id, title: event.title, event_date: event.event_date, category_id: event.category_id || '', city: event.city, venue: event.venue,
     description: event.description, price: centsToInput(event.price_cents), pack_price: centsToInput(event.pack_price_cents),
-    discount_tiers: event.discount_tiers || [], status: event.status,
+    discount_tiers: event.discount_tiers || [], status: event.status, hide_gallery: event.hide_gallery, watermark_mode: event.watermark_mode || 'site',
   } : blank;
 
   const remove = async () => {
@@ -304,7 +342,20 @@ export default function EventEditor() {
         <div className="alert alert-warn">Este evento ainda não aparece no site. Mude o status para <b>Publicado</b> quando terminar de enviar.</div>
       )}
 
-      {event.id && <Uploader eventId={event.id} onUploaded={(p) => p && setPhotos((list) => [...list, { ...p, sold: 0 }])} />}
+      {event.drive_folder_id && (
+        <div className="alert row" style={{ gap: 8 }}><HardDrive size={16} /> Evento importado do Google Drive: fotos novas na pasta entram sozinhas.{event.auto_publish && event.status === 'draft' && ' Será publicado automaticamente quando o processamento terminar.'}</div>
+      )}
+      {busy && (
+        <div className="alert alert-warn row" style={{ gap: 8 }}>
+          <div className="spinner" style={{ width: 16, height: 16, borderWidth: 2 }} />
+          Processando no servidor: {queue.render > 0 && `${queue.render} vitrine(s) para refazer`}{queue.render > 0 && queue.faces > 0 && ' · '}{queue.faces > 0 && `${queue.faces} foto(s) procurando rostos`}
+        </div>
+      )}
+      {event.id && <Uploader eventId={event.id} onUploaded={(p) => {
+        if (!p) return;
+        setPhotos((list) => [...list, { ...p, sold: 0 }]);
+        if (p.pending) setQueue((q) => ({ render: q?.render || 0, faces: (q?.faces || 0) + 1 }));
+      }} />}
 
       <EventForm
         key={event.id || 'novo'}
@@ -312,11 +363,11 @@ export default function EventEditor() {
         onSaved={async (d) => {
           await refresh();
           if (!event.id && d.event) nav(`/painel/eventos/${d.event.id}`, { replace: true });
-          else api(`/studio/events/${event.id}`).then((x) => setEvent(x.event));
+          else api(`/studio/events/${event.id}`).then((x) => { setEvent(x.event); setQueue(x.queue); });
         }}
       />
 
-      {event.id && <PhotosManager event={event} photos={photos} setPhotos={setPhotos} onCover={(pid) => setEvent({ ...event, cover_photo_id: pid })} />}
+      {event.id && <PhotosManager event={event} photos={photos} setPhotos={setPhotos} onCover={(pid) => setEvent({ ...event, cover_photo_id: pid })} onQueued={(n) => n && setQueue((q) => ({ render: q?.render || 0, faces: (q?.faces || 0) + n }))} />}
       {event.id && event.status === 'published' && <ShareKit event={event} />}
       {event.id && <button className="btn btn-danger btn-sm" style={{ alignSelf: 'flex-start' }} onClick={remove}><Trash2 size={14} /> Excluir evento</button>}
     </div>

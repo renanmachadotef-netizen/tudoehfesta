@@ -20,7 +20,7 @@ async function loadOrder(code, user) {
 
 async function orderOut(order) {
   const items = await db.many(
-    `select oi.photo_id as id, oi.event_id, oi.price_cents, p.width, p.height, e.title as event_title, e.slug as event_slug
+    `select oi.photo_id as id, oi.event_id, oi.price_cents, p.width, p.height, p.key, e.title as event_title, e.slug as event_slug
        from order_items oi join photos p on p.id = oi.photo_id join events e on e.id = oi.event_id
       where oi.order_id = $1 order by oi.event_id, oi.photo_id`,
     [order.id],
@@ -138,7 +138,7 @@ r.get('/my/orders', requireUser, async (req, res) => {
 
 r.get('/my/photos', requireUser, async (req, res) => {
   const rows = await db.many(
-    `select distinct on (p.id) p.id, p.event_id, p.width, p.height, e.title as event_title, e.slug as event_slug, e.event_date, o.paid_at
+    `select distinct on (p.id) p.id, p.event_id, p.width, p.height, p.key, e.title as event_title, e.slug as event_slug, e.event_date, o.paid_at
        from order_items oi join orders o on o.id = oi.order_id and o.status = 'paid'
        join photos p on p.id = oi.photo_id join events e on e.id = p.event_id
       where o.user_id = $1 order by p.id`,

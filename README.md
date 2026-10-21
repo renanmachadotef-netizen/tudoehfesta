@@ -19,6 +19,15 @@ Plataforma de venda de fotos de eventos com reconhecimento facial, feita para o 
 - Financeiro: saldo disponível e a liberar (prazo de estorno), saque via Pix.
 - Kit de divulgação: link, QR Code e mensagem pronta para WhatsApp.
 
+**Google Drive** (`/painel/drive`)
+- O fotógrafo liga a pasta do ano. Cada subpasta vira um evento (`2026-09-12 Formatura CEJA - Criciúma` → nome, data e cidade). Fotos soltas vão para "Fotos de 2026".
+- A cada `DRIVE_SYNC_MINUTES` o servidor importa as fotos novas, recusa repetidas, corrompidas, HEIC/RAW e de resolução baixa, indexa os rostos (TensorFlow WASM numa thread separada) e publica quando o evento fica pronto.
+- Credencial: `GOOGLE_SERVICE_ACCOUNT_JSON` (pasta privada compartilhada com o e-mail da conta de serviço) ou `GOOGLE_API_KEY` (pasta pública por link).
+
+**Marca d'água**: padrão do site (admin), do fotógrafo ou nenhuma, por evento. Texto ou logo PNG, transparência e posição (diagonal, centro, canto). Trocar refaz as vitrines em segundo plano a partir dos originais.
+
+**Galeria oculta**: evento com "não exibir as fotos" só mostra a cada pessoa as fotos em que ela aparece (busca por selfie). Endereços das imagens têm código aleatório.
+
 **Admin** (`/admin`)
 - Faturamento, comissão, pendências (fotógrafos, saques, Pix manual).
 - Aprovar ou bloquear fotógrafos e definir comissão por fotógrafo.

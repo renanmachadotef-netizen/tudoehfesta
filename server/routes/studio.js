@@ -4,7 +4,10 @@ import multer from 'multer';
 import { db } from '../db.js';
 import { config } from '../config.js';
 import { requirePhotographer, requireUser } from '../auth.js';
-import { dirs, storePhoto, photoSha, removePhotoFiles, storeAsset } from '../storage.js';
+import { dirs, saveOriginal, renderPhoto, photoSha, removePhotoFiles, storeAsset } from '../storage.js';
+import { normalizeWatermark, watermarkPreview, clearWatermarkCache } from '../watermark.js';
+import { driveInfo, parseFolderId, folderName } from '../drive.js';
+import { queueStatus } from '../jobs.js';
 import { encodeDescriptor, invalidateFaces } from '../faces.js';
 import { getSetting } from '../pricing.js';
 import { EVENT_CARD, EVENT_JOINS, eventCard, photoOut } from './public.js';
@@ -16,6 +19,7 @@ const upload = multer({
   limits: { fileSize: config.maxUploadMb * 1024 * 1024, files: 1 },
   fileFilter: (_req, file, cb) => cb(null, /^image\/(jpeg|png|webp)$/.test(file.mimetype)),
 });
+const wmUpload = multer({ dest: dirs.tmp, limits: { fileSize: 8 * 1024 * 1024, files: 1 } });
 
 // Perfil fica liberado mesmo com cadastro em analise (para completar dados e chave Pix).
 r.get('/profile', requireUser, async (req, res) => {
@@ -136,18 +140,23 @@ function eventFields(b) {
     pack_price_cents: toCents(b.pack_price) || null,
     discount_tiers: JSON.stringify(tiers),
     status: ['draft', 'published', 'hidden'].includes(b.status) ? b.status : 'draft',
+    hide_gallery: !!b.hide_gallery,
+    watermark_mode: WM_MODES.includes(b.watermark_mode) ? b.watermark_mode : 'site',
   };
 }
+
+const WM_MODES = ['site', 'photographer', 'none'];
 
 r.post('/events', async (req, res) => {
   const f = eventFields(req.body || {});
   const slug = await uniqueSlug('events', `${f.title} ${f.event_date.slice(0, 4)}`);
   const ev = await db.one(
     `insert into events (slug, title, description, category_id, photographer_id, event_date, city, venue, price_cents,
-       pack_price_cents, discount_tiers, status, published_at)
-     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12, case when $12 = 'published' then now() end) returning id, slug`,
+       pack_price_cents, discount_tiers, status, published_at, hide_gallery, watermark_mode)
+     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12, case when $12 = 'published' then now() end, $13, $14)
+     returning id, slug`,
     [slug, f.title, f.description, f.category_id, req.user.id, f.event_date, f.city, f.venue, f.price_cents,
-      f.pack_price_cents, f.discount_tiers, f.status],
+      f.pack_price_cents, f.discount_tiers, f.status, f.hide_gallery, f.watermark_mode],
   );
   res.json({ event: ev });
 });
@@ -155,11 +164,11 @@ r.post('/events', async (req, res) => {
 r.get('/events/:id', async (req, res) => {
   const ev = await ownEvent(req, req.params.id);
   const row = await db.one(
-    `select ${EVENT_CARD}, e.description, e.views, e.cover_photo_id,
+    `select ${EVENT_CARD}, e.description, e.views, e.cover_photo_id, e.drive_folder_id, e.auto_publish,
             (select count(*) from faces f where f.event_id = e.id)::int as face_count ${EVENT_JOINS} where e.id = $1`,
     [ev.id],
   );
-  res.json({ event: eventCard(row) });
+  res.json({ event: eventCard(row), queue: await queueStatus('p.event_id = $1', [ev.id]) });
 });
 
 r.put('/events/:id', async (req, res) => {
@@ -168,14 +177,22 @@ r.put('/events/:id', async (req, res) => {
   const slug = f.title !== ev.title ? await uniqueSlug('events', `${f.title} ${f.event_date.slice(0, 4)}`, ev.id) : ev.slug;
   await db.query(
     `update events set slug = $2, title = $3, description = $4, category_id = $5, event_date = $6, city = $7, venue = $8,
-       price_cents = $9, pack_price_cents = $10, discount_tiers = $11::jsonb, status = $12,
-       published_at = case when $12 = 'published' then coalesce(published_at, now()) else published_at end
+       price_cents = $9, pack_price_cents = $10, discount_tiers = $11::jsonb,
+       auto_publish = case when $12 <> status then false else auto_publish end,
+       status = $12,
+       published_at = case when $12 = 'published' then coalesce(published_at, now()) else published_at end,
+       hide_gallery = $13, watermark_mode = $14
      where id = $1`,
     [ev.id, slug, f.title, f.description, f.category_id, f.event_date, f.city, f.venue, f.price_cents, f.pack_price_cents,
-      f.discount_tiers, f.status],
+      f.discount_tiers, f.status, f.hide_gallery, f.watermark_mode],
   );
   if (String(ev.event_date) !== f.event_date) {
     await db.query('update faces set year = $2 where event_id = $1', [ev.id, Number(f.event_date.slice(0, 4))]);
+  }
+  // Marca d'agua trocada: refaz vitrines em segundo plano (os originais nao mudam).
+  if (ev.watermark_mode !== f.watermark_mode) {
+    clearWatermarkCache();
+    await db.query('update photos set needs_render = true where event_id = $1', [ev.id]);
   }
   invalidateFaces();
   res.json({ ok: true, slug });
@@ -185,9 +202,9 @@ r.delete('/events/:id', async (req, res) => {
   const ev = await ownEvent(req, req.params.id);
   const sold = await db.one('select count(*)::int as n from order_items where event_id = $1', [ev.id]);
   if (sold.n) fail(409, 'Este evento já tem vendas: oculte-o em vez de excluir.');
-  const photos = await db.many('select id, original_path from photos where event_id = $1', [ev.id]);
+  const photos = await db.many('select id, original_path, key from photos where event_id = $1', [ev.id]);
   await db.query('delete from events where id = $1', [ev.id]);
-  for (const p of photos) await removePhotoFiles(ev.id, p.id, p.original_path);
+  for (const p of photos) await removePhotoFiles(ev.id, p.id, p.original_path, p.key);
   invalidateFaces();
   res.json({ ok: true });
 });
@@ -203,16 +220,18 @@ r.put('/events/:id/cover', async (req, res) => {
 r.get('/events/:id/photos', async (req, res) => {
   const ev = await ownEvent(req, req.params.id);
   const rows = await db.many(
-    `select p.id, p.event_id, p.width, p.height, p.faces_count, p.original_name,
+    `select p.id, p.event_id, p.width, p.height, p.key, p.faces_count, p.original_name, p.needs_faces, p.needs_render,
             (select count(*) from order_items oi join orders o on o.id = oi.order_id and o.status = 'paid' where oi.photo_id = p.id)::int as sold
-       from photos p where p.event_id = $1 order by p.sort_key nulls last, p.id`,
+       from photos p where p.event_id = $1 and p.key is not null order by p.sort_key nulls last, p.id`,
     [ev.id],
   );
-  res.json({ photos: rows.map((p) => ({ ...photoOut(p), faces: p.faces_count, name: p.original_name, sold: p.sold })) });
+  res.json({
+    photos: rows.map((p) => ({ ...photoOut(p), faces: p.faces_count, name: p.original_name, sold: p.sold, pending: p.needs_faces || p.needs_render })),
+  });
 });
 
-// Upload de uma foto por requisicao (o navegador manda varias em paralelo). Os rostos chegam ja
-// calculados pelo navegador do fotografo: o servidor so guarda os vetores.
+// Upload de uma foto por requisicao (o navegador manda varias em paralelo). Normalmente os rostos chegam
+// calculados pelo navegador do fotografo; sem eles (faces_done ausente) o servidor indexa em segundo plano.
 r.post('/events/:id/photos', upload.single('file'), async (req, res) => {
   const ev = await ownEvent(req, req.params.id);
   if (!req.file) fail(400, 'Arquivo inválido: envie JPG, PNG ou WEBP.');
@@ -230,22 +249,24 @@ r.post('/events/:id/photos', upload.single('file'), async (req, res) => {
     } catch {
       faces = [];
     }
+    const browserFaces = req.body.faces_done === '1';
     const name = cleanText(req.body.name || req.file.originalname, 200);
     const photo = await db.one(
       `insert into photos (event_id, photographer_id, original_name, original_path, sort_key) values ($1, $2, $3, '', $4) returning id`,
       [ev.id, ev.photographer_id, name, cleanText(req.body.sort_key || name, 200)],
     );
-    const label = `${config.watermarkText}`;
     let stored;
+    let key;
     try {
-      stored = await storePhoto({ tmpPath: tmp, eventId: ev.id, photoId: photo.id, originalName: name, label });
+      stored = await saveOriginal({ tmpPath: tmp, eventId: ev.id, photoId: photo.id, originalName: name, sha256: sha });
+      key = await renderPhoto({ eventId: ev.id, photoId: photo.id, originalPath: stored.originalPath });
     } catch (err) {
       await db.query('delete from photos where id = $1', [photo.id]);
       throw err;
     }
-    const year = Number(String(ev.event_date instanceof Date ? ev.event_date.toISOString() : ev.event_date).slice(0, 4));
+    const year = Number(String(ev.event_date).slice(0, 4));
     let saved = 0;
-    for (const f of faces.slice(0, 60)) {
+    for (const f of browserFaces ? faces.slice(0, 60) : []) {
       const buf = encodeDescriptor(f.d);
       if (!buf) continue;
       await db.query('insert into faces (photo_id, event_id, year, descriptor, box) values ($1, $2, $3, $4, $5::jsonb)', [
@@ -253,32 +274,24 @@ r.post('/events/:id/photos', upload.single('file'), async (req, res) => {
       ]);
       saved++;
     }
-    await db.query('update photos set original_path = $2, width = $3, height = $4, bytes = $5, sha256 = $6, faces_count = $7 where id = $1', [
-      photo.id, stored.originalPath, stored.width, stored.height, stored.bytes, stored.sha256, saved,
-    ]);
+    await db.query(
+      `update photos set original_path = $2, width = $3, height = $4, bytes = $5, sha256 = $6, faces_count = $7, key = $8,
+         needs_faces = $9 where id = $1`,
+      [photo.id, stored.originalPath, stored.width, stored.height, stored.bytes, stored.sha256, saved, key, !browserFaces],
+    );
     if (saved) invalidateFaces();
-    res.json({ photo: { ...photoOut({ id: photo.id, event_id: ev.id, width: stored.width, height: stored.height }), faces: saved } });
+    res.json({ photo: { ...photoOut({ id: photo.id, event_id: ev.id, width: stored.width, height: stored.height, key }), faces: saved, pending: !browserFaces } });
   } catch (err) {
     await fsp.unlink(tmp).catch(() => {});
     throw err;
   }
 });
 
-// Reprocessar rostos de fotos ja enviadas (ex.: upload feito sem reconhecimento).
-r.put('/photos/:id/faces', async (req, res) => {
-  const p = await db.one('select p.id, p.event_id, e.event_date, e.photographer_id from photos p join events e on e.id = p.event_id where p.id = $1', [Number(req.params.id)]);
-  if (!p || (p.photographer_id !== req.user.id && req.user.role !== 'admin')) fail(404, 'Foto não encontrada.');
-  const year = Number(String(p.event_date instanceof Date ? p.event_date.toISOString() : p.event_date).slice(0, 4));
-  const faces = (req.body?.faces || []).slice(0, 60).map((f) => ({ buf: encodeDescriptor(f.d), box: f.box })).filter((f) => f.buf);
-  await db.tx(async (t) => {
-    await t.query('delete from faces where photo_id = $1', [p.id]);
-    for (const f of faces) {
-      await t.query('insert into faces (photo_id, event_id, year, descriptor, box) values ($1, $2, $3, $4, $5::jsonb)', [p.id, p.event_id, year, f.buf, JSON.stringify(f.box || null)]);
-    }
-    await t.query('update photos set faces_count = $2 where id = $1', [p.id, faces.length]);
-  });
-  invalidateFaces();
-  res.json({ ok: true, faces: faces.length });
+// Indexa de novo, no servidor, as fotos do evento em que nenhum rosto foi encontrado.
+r.post('/events/:id/reindex', async (req, res) => {
+  const ev = await ownEvent(req, req.params.id);
+  const r2 = await db.query('update photos set needs_faces = true where event_id = $1 and faces_count = 0', [ev.id]);
+  res.json({ ok: true, queued: r2.rowCount ?? r2.affectedRows ?? 0 });
 });
 
 r.delete('/photos/:id', async (req, res) => {
@@ -288,7 +301,7 @@ r.delete('/photos/:id', async (req, res) => {
   if (sold.n) fail(409, 'Esta foto já foi vendida e precisa continuar disponível para o cliente.');
   await db.query('update events set cover_photo_id = null where cover_photo_id = $1', [p.id]);
   await db.query('delete from photos where id = $1', [p.id]);
-  await removePhotoFiles(p.event_id, p.id, p.original_path);
+  await removePhotoFiles(p.event_id, p.id, p.original_path, p.key);
   invalidateFaces();
   res.json({ ok: true });
 });
@@ -363,6 +376,131 @@ r.post('/coupons', async (req, res) => {
 
 r.put('/coupons/:id', async (req, res) => {
   await db.query('update coupons set active = $3 where id = $1 and photographer_id = $2', [Number(req.params.id), req.user.id, !!req.body?.active]);
+  res.json({ ok: true });
+});
+
+// ---------- Marca d'agua do fotografo ----------
+
+r.get('/watermark', async (req, res) => {
+  const p = await db.one('select watermark from photographers where user_id = $1', [req.user.id]);
+  const site = normalizeWatermark(await getSetting('watermark', null));
+  res.json({ watermark: p?.watermark ? normalizeWatermark(p.watermark) : null, site });
+});
+
+r.put('/watermark', async (req, res) => {
+  const wm = req.body?.watermark ? normalizeWatermark(req.body.watermark) : null;
+  await db.query('update photographers set watermark = $2::jsonb where user_id = $1', [req.user.id, wm ? JSON.stringify(wm) : null]);
+  clearWatermarkCache();
+  const r2 = await db.query(
+    `update photos set needs_render = true where event_id in (select id from events where photographer_id = $1 and watermark_mode = 'photographer')`,
+    [req.user.id],
+  );
+  res.json({ ok: true, rerender: r2.rowCount ?? r2.affectedRows ?? 0 });
+});
+
+r.post('/watermark/image', wmUpload.single('file'), async (req, res) => {
+  if (!req.file) fail(400, 'Envie o logo em PNG (de preferência com fundo transparente).');
+  res.json({ url: await storeAsset(req.file.path, 'marcas', { maxSide: 1200, png: true }) });
+});
+
+r.post('/watermark/preview', async (req, res) => {
+  const wm = normalizeWatermark(req.body?.watermark);
+  res.setHeader('Content-Type', 'image/webp');
+  res.setHeader('Cache-Control', 'no-store');
+  res.end(await watermarkPreview(wm));
+});
+
+// ---------- Google Drive ----------
+
+r.get('/drive', async (req, res) => {
+  const sources = await db.many(
+    `select s.*, c.name as category_name,
+            (select count(*) from events e where e.drive_source_id = s.id)::int as events,
+            (select count(*) from photos p join events e on e.id = p.event_id where e.drive_source_id = s.id)::int as photos,
+            (select count(*) from photos p join events e on e.id = p.event_id where e.drive_source_id = s.id and (p.needs_faces or p.needs_render))::int as pending,
+            (select count(*) from drive_skips k where k.source_id = s.id)::int as skipped
+       from drive_sources s left join categories c on c.id = s.category_id
+      where s.photographer_id = $1 order by s.year desc, s.id desc`,
+    [req.user.id],
+  );
+  res.json({ info: driveInfo(), sources });
+});
+
+function sourceFields(b) {
+  const price = toCents(b.price);
+  if (price == null || price < 100) fail(400, 'Preço por foto mínimo: R$ 1,00.');
+  const year = Math.round(Number(b.year));
+  if (!(year >= 1990 && year <= 2100)) fail(400, 'Ano inválido.');
+  return {
+    year,
+    category_id: Number(b.category_id) || null,
+    price_cents: price,
+    pack_price_cents: toCents(b.pack_price) || null,
+    auto_publish: b.auto_publish !== false,
+    hide_gallery: !!b.hide_gallery,
+    watermark_mode: WM_MODES.includes(b.watermark_mode) ? b.watermark_mode : 'site',
+  };
+}
+
+r.post('/drive', async (req, res) => {
+  if (!driveInfo().configured) fail(400, 'A integração com o Google Drive ainda não foi configurada no servidor.');
+  const folderId = parseFolderId(req.body?.link);
+  if (!folderId) fail(400, 'Cole o link de uma pasta do Google Drive.');
+  const f = sourceFields(req.body || {});
+  const exists = await db.one('select id from drive_sources where photographer_id = $1 and folder_id = $2', [req.user.id, folderId]);
+  if (exists) fail(409, 'Essa pasta já está ligada.');
+  const name = await folderName(folderId);
+  await db.query(
+    `insert into drive_sources (photographer_id, folder_id, name, year, category_id, price_cents, pack_price_cents, auto_publish, hide_gallery, watermark_mode, last_status)
+     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'na fila')`,
+    [req.user.id, folderId, name, f.year, f.category_id, f.price_cents, f.pack_price_cents, f.auto_publish, f.hide_gallery, f.watermark_mode],
+  );
+  res.json({ ok: true, name });
+});
+
+async function ownSource(req) {
+  const s = await db.one('select * from drive_sources where id = $1', [Number(req.params.id)]);
+  if (!s || (s.photographer_id !== req.user.id && req.user.role !== 'admin')) fail(404, 'Pasta não encontrada.');
+  return s;
+}
+
+r.put('/drive/:id', async (req, res) => {
+  const s = await ownSource(req);
+  if (req.body?.active !== undefined && Object.keys(req.body).length === 1) {
+    await db.query('update drive_sources set active = $2 where id = $1', [s.id, !!req.body.active]);
+    return res.json({ ok: true });
+  }
+  const f = sourceFields(req.body || {});
+  await db.query(
+    `update drive_sources set year = $2, category_id = $3, price_cents = $4, pack_price_cents = $5, auto_publish = $6,
+       hide_gallery = $7, watermark_mode = $8 where id = $1`,
+    [s.id, f.year, f.category_id, f.price_cents, f.pack_price_cents, f.auto_publish, f.hide_gallery, f.watermark_mode],
+  );
+  res.json({ ok: true });
+});
+
+r.post('/drive/:id/sync', async (req, res) => {
+  const s = await ownSource(req);
+  await db.query(`update drive_sources set last_status = 'na fila', active = true where id = $1 and coalesce(last_status, '') <> 'sincronizando'`, [s.id]);
+  res.json({ ok: true });
+});
+
+r.get('/drive/:id/skips', async (req, res) => {
+  const s = await ownSource(req);
+  res.json({ skips: await db.many('select name, reason, created_at from drive_skips where source_id = $1 order by created_at desc limit 300', [s.id]) });
+});
+
+// Esquece as recusas: na proxima rodada esses arquivos sao revisados de novo (ex.: depois de trocar o arquivo).
+r.delete('/drive/:id/skips', async (req, res) => {
+  const s = await ownSource(req);
+  await db.query('delete from drive_skips where source_id = $1', [s.id]);
+  res.json({ ok: true });
+});
+
+r.delete('/drive/:id', async (req, res) => {
+  const s = await ownSource(req);
+  await db.query('update events set drive_source_id = null, auto_publish = false where drive_source_id = $1', [s.id]);
+  await db.query('delete from drive_sources where id = $1', [s.id]);
   res.json({ ok: true });
 });
 

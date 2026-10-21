@@ -7,6 +7,7 @@ import { db, initDb } from './db.js';
 import { loadUser, hashPassword } from './auth.js';
 import { dirs } from './storage.js';
 import { HttpError, uniqueSlug } from './util.js';
+import { startJobs } from './jobs.js';
 import publicRoutes from './routes/public.js';
 import authRoutes from './routes/auth.js';
 import orderRoutes from './routes/orders.js';
@@ -59,6 +60,7 @@ app.use((err, req, res, _next) => {
 });
 
 app.listen(config.port, () => console.log(`[tudoehfesta] ouvindo na porta ${config.port}`));
+startJobs();
 
 // Primeiro admin vem das variaveis ADMIN_EMAIL/ADMIN_PASSWORD (so cria se ainda nao existir).
 async function seedAdmin() {
