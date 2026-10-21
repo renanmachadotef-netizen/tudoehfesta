@@ -1,13 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Camera, ImagePlus, ScanFace, ShieldCheck, X, SwitchCamera } from 'lucide-react';
+import { Camera, ImagePlus, ScanFace, ShieldCheck, X, SwitchCamera, UserPlus, Trash2 } from 'lucide-react';
 import { fileToCanvas, loadFaceApi, selfieDescriptor, selfieStore } from '../lib/faces.js';
 
 // Captura a selfie (camera ou arquivo), gera o vetor do rosto no aparelho e entrega ao pai.
-// onSelfie({ descriptor, preview }) e chamado quando ha selfie pronta (inclusive a ja salva nesta aba).
-export default function SelfieSearch({ onSelfie, title = 'Encontre suas fotos com uma selfie', subtitle, busy, consentText, actionLabel = 'Buscar minhas fotos', readyTitle = 'Sua selfie está pronta' }) {
-  const [selfie, setSelfie] = useState(() => selfieStore.get());
-  const [consent, setConsent] = useState(!!selfieStore.get());
+// onSelfie({ descriptor, preview }) e chamado quando ha selfie pronta. Por padrao a selfie vale so para esta busca
+// (troca facil para buscar um amigo); com "Lembrar esta selfie" ela fica na aba para outros anos e eventos.
+export default function SelfieSearch({ onSelfie, title = 'Encontre suas fotos com uma selfie', subtitle, busy, consentText, actionLabel = 'Buscar minhas fotos', readyTitle = 'Sua selfie está pronta', allowRemember = true }) {
+  const [selfie, setSelfie] = useState(() => (allowRemember ? selfieStore.get() : null));
+  const [remember, setRemember] = useState(() => allowRemember && !!selfieStore.get());
+  const [consent, setConsent] = useState(() => allowRemember && !!selfieStore.get());
   const [mode, setMode] = useState('idle'); // idle | camera | working
   const [status, setStatus] = useState('');
   const [error, setError] = useState('');
@@ -17,7 +19,12 @@ export default function SelfieSearch({ onSelfie, title = 'Encontre suas fotos co
   const fileRef = useRef();
 
   useEffect(() => {
-    const sync = () => setSelfie(selfieStore.get());
+    if (!allowRemember) return undefined;
+    const sync = () => {
+      const s = selfieStore.get();
+      setRemember(!!s);
+      if (s) setSelfie(s);
+    };
     window.addEventListener('tef-selfie', sync);
     return () => window.removeEventListener('tef-selfie', sync);
   }, []);
@@ -47,7 +54,7 @@ export default function SelfieSearch({ onSelfie, title = 'Encontre suas fotos co
         return;
       }
       const s = { descriptor: res.descriptor, preview: res.preview };
-      selfieStore.set(s);
+      if (remember) selfieStore.set(s);
       setSelfie(s);
       setMode('idle');
       onSelfie?.(s);
@@ -98,6 +105,18 @@ export default function SelfieSearch({ onSelfie, title = 'Encontre suas fotos co
     }
   }
 
+  // Nova selfie / esquecer: apaga a selfie da tela e da aba.
+  const forget = () => {
+    selfieStore.clear();
+    setRemember(false);
+    setSelfie(null);
+  };
+  const toggleRemember = (on) => {
+    setRemember(on);
+    if (on && selfie) selfieStore.set(selfie);
+    else selfieStore.clear();
+  };
+
   const working = mode === 'working' || busy;
 
   return (
@@ -111,9 +130,13 @@ export default function SelfieSearch({ onSelfie, title = 'Encontre suas fotos co
         <div className="stack" style={{ gap: 4 }}>
           <h3 style={{ fontSize: 20 }}>{selfie ? readyTitle : title}</h3>
           <p className="small" style={{ color: 'rgba(255,255,255,.7)' }}>
-            {selfie
-              ? 'Usamos sua selfie só neste aparelho para buscar suas fotos. Pode trocar quando quiser.'
-              : subtitle || 'Tire uma selfie e mostramos as fotos em que você aparece. Leva poucos segundos.'}
+            {!selfie
+              ? subtitle || 'Tire uma selfie e mostramos as fotos em que você aparece. Leva poucos segundos.'
+              : remember
+                ? 'Selfie lembrada nesta aba para buscar em outros anos e eventos. Ao fechar a aba ela some.'
+                : allowRemember
+                  ? 'Esta selfie vale só para esta busca. Com amigos? Use “Nova selfie” para procurar cada um.'
+                  : 'Usamos sua selfie só neste aparelho.'}
           </p>
         </div>
       </div>
@@ -150,9 +173,14 @@ export default function SelfieSearch({ onSelfie, title = 'Encontre suas fotos co
                 <button className="btn btn-accent" disabled={working} onClick={() => onSelfie?.(selfie)}>
                   <ScanFace size={18} /> {working ? 'Aguarde…' : actionLabel}
                 </button>
-                <button className="btn btn-ghost" style={{ color: '#fff', borderColor: 'rgba(255,255,255,.25)' }} disabled={working} onClick={() => { selfieStore.clear(); setSelfie(null); }}>
-                  Trocar selfie
+                <button className="btn btn-ghost" style={{ color: '#fff', borderColor: 'rgba(255,255,255,.25)' }} disabled={working} onClick={forget}>
+                  <UserPlus size={17} /> {allowRemember ? 'Nova selfie (outra pessoa)' : 'Trocar selfie'}
                 </button>
+                {remember && (
+                  <button className="btn btn-ghost" style={{ color: '#fff', borderColor: 'rgba(255,255,255,.25)' }} disabled={working} onClick={forget}>
+                    <Trash2 size={16} /> Esquecer selfie
+                  </button>
+                )}
               </>
             ) : (
               <>
@@ -166,6 +194,12 @@ export default function SelfieSearch({ onSelfie, title = 'Encontre suas fotos co
             )}
             <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp" hidden onChange={onFile} />
           </div>
+          {allowRemember && selfie && (
+            <label className="check">
+              <input type="checkbox" checked={remember} onChange={(e) => toggleRemember(e.target.checked)} />
+              <span>Lembrar esta selfie enquanto a aba estiver aberta, para buscar em outros anos e eventos sem tirar outra.</span>
+            </label>
+          )}
         </>
       )}
 

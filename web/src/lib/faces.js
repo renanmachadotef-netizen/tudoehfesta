@@ -81,7 +81,8 @@ export async function selfieDescriptor(input) {
   return { descriptor: best.d, preview: crop.toDataURL('image/jpeg', 0.8), faces: faces.length };
 }
 
-// A selfie (so o vetor + miniatura) fica salva nesta aba para buscar em varios eventos sem tirar de novo.
+// Selfie lembrada (so o vetor + miniatura), apenas quando a pessoa marca "Lembrar esta selfie":
+// fica nesta aba para buscar em outros anos e eventos; some ao fechar a aba ou em "Esquecer selfie".
 const KEY = 'tef_selfie';
 export const selfieStore = {
   get() {

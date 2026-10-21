@@ -128,6 +128,7 @@ export function FacePrivacy() {
             readyTitle="Selfie pronta para cadastrar"
             actionLabel="Cadastrar meu rosto"
             consentText="Autorizo guardar um código numérico do meu rosto (não a foto) para encontrar minhas fotos e, se eu pedir, borrar minhas imagens. Posso apagar quando quiser."
+            allowRemember={false}
           />
           {changing && <button className="btn btn-sm btn-ghost" style={{ alignSelf: 'flex-start' }} onClick={() => setChanging(false)}>Cancelar</button>}
         </>
