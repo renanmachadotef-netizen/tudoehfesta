@@ -12,7 +12,7 @@ import { detectFacesOnServer } from './facepool.js';
 import { encodeDescriptor, invalidateFaces } from './faces.js';
 
 // Importacao do Google Drive. Dois tipos de pasta ligada:
-//   kind 'year' (pasta geral do ano):
+//   kind 'year' (pasta geral: um ano so, ou a raiz 'tudoehfesta' com 2003..2026 dentro):
 //     2026/                                <- pasta ligada no painel
 //       10/                                <- pasta so de organizacao (mes): sem fotos, nao vira evento
 //         aniversario_luiz_05_10_2026/     <- tem fotos: vira o evento "Aniversario Luiz", 05/10/2026
@@ -214,18 +214,41 @@ async function collectGroups(source) {
     const items = await listChildren(folder.id);
     const images = items.filter(isImage);
     const subs = items.filter(isFolder).sort((a, b) => a.name.localeCompare(b.name, 'pt', { numeric: true }));
-    if (depth === 0) {
-      if (images.length) groups.push({ folder, files: images, path, isRoot: true });
+    // Raiz, ano ("2026") e mes ("10") so organizam: fotos soltas nelas viram um grupo proprio,
+    // mas as subpastas continuam sendo eventos separados.
+    const organizer = depth === 0 || /^\d{4}$/.test(String(folder.name).trim()) || /^\d{1,2}$/.test(String(folder.name).trim());
+    if (organizer) {
+      if (images.length) groups.push({ folder, files: images, path, isRoot: depth === 0 });
     } else if (images.length) {
       const files = [...images];
       for (const s of subs) files.push(...(await listImagesDeep(s.id, depth + 1)));
       groups.push({ folder, files, path, isRoot: false });
       return;
     }
-    if (depth < 4) for (const s of subs) await walk(s, [...path, folder.name], depth + 1);
+    if (depth < 5) for (const s of subs) await walk(s, [...path, folder.name], depth + 1);
   }
   await walk({ id: source.folder_id, name: source.name }, [], 0);
   return groups;
+}
+
+const MONTHS = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
+
+// Titulo e data de uma pasta que tem fotos. Pastas de ano ou de mes com fotos soltas viram
+// "Eventos de 2008" / "Fotos de outubro de 2026"; as demais tem o nome lido como evento.
+function describeGroup(source, g) {
+  const name = String(g.folder.name).trim();
+  const pathDate = dateFromPath([...g.path, name]);
+  const yearInPath = [...g.path, name].map((n) => String(n).trim()).filter((n) => /^\d{4}$/.test(n)).pop();
+  if (g.isRoot) {
+    const y = source.year || yearInPath;
+    return { title: y ? `Fotos de ${y}` : 'Fotos avulsas', date: y ? `${y}-01-01` : null, city: null };
+  }
+  if (/^\d{4}$/.test(name)) return { title: `Eventos de ${name}`, date: `${name}-01-01`, city: null };
+  if (/^\d{1,2}$/.test(name) && Number(name) >= 1 && Number(name) <= 12 && yearInPath) {
+    return { title: `Fotos de ${MONTHS[Number(name) - 1]} de ${yearInPath}`, date: pathDate, city: null };
+  }
+  const parsed = parseEventName(name, source.year || Number(yearInPath) || new Date().getFullYear());
+  return { ...parsed, date: parsed.date || pathDate };
 }
 
 async function eventForGroup(source, g) {
@@ -235,8 +258,8 @@ async function eventForGroup(source, g) {
   }
   const found = await db.one('select id, event_date from events where drive_folder_id = $1', [g.folder.id]);
   if (found) return found;
-  const parsed = g.isRoot ? { title: `Fotos de ${source.year}`, date: `${source.year}-01-01`, city: null } : parseEventName(g.folder.name, source.year);
-  const date = parsed.date || fileDate(g.files) || dateFromPath([...g.path, g.folder.name]) || (g.folder.createdTime || '').slice(0, 10) || `${source.year}-01-01`;
+  const parsed = describeGroup(source, g);
+  const date = parsed.date || fileDate(g.files) || (g.folder.createdTime || '').slice(0, 10) || new Date().toISOString().slice(0, 10);
   const slug = await uniqueSlug('events', `${parsed.title} ${date.slice(0, 4)}`);
   return db.one(
     `insert into events (slug, title, category_id, photographer_id, event_date, city, price_cents, pack_price_cents, status,

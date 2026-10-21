@@ -243,3 +243,6 @@ create index if not exists orders_pending_idx on orders (created_at) where statu
 alter table drive_sources add column if not exists kind text not null default 'year';
 alter table drive_sources add column if not exists event_id integer references events(id) on delete cascade;
 create unique index if not exists drive_sources_event_idx on drive_sources (event_id) where event_id is not null;
+
+-- v6: pasta geral com varios anos (tudoehfesta/2003..2026/mes/evento): ano da fonte passa a ser opcional.
+alter table drive_sources alter column year drop not null;

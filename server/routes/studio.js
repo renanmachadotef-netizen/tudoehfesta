@@ -436,8 +436,9 @@ r.get('/drive', async (req, res) => {
 function sourceFields(b) {
   const price = toCents(b.price);
   if (price == null || price < 100) fail(400, 'Preço por foto mínimo: R$ 1,00.');
-  const year = Math.round(Number(b.year));
-  if (!(year >= 1990 && year <= 2100)) fail(400, 'Ano inválido.');
+  // Ano opcional: em branco quando a pasta tem varios anos dentro (tudoehfesta/2003..2026/...).
+  const year = b.year === '' || b.year == null ? null : Math.round(Number(b.year));
+  if (year !== null && !(year >= 1990 && year <= 2100)) fail(400, 'Ano inválido.');
   return {
     year,
     category_id: Number(b.category_id) || null,

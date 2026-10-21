@@ -8,7 +8,7 @@ import { Loading, ErrorBox } from '../../components/Layout.jsx';
 import { PageHead } from './Studio.jsx';
 
 const WM = { site: 'Padrão do site', photographer: 'Minha marca', none: 'Sem marca d’água' };
-const blank = () => ({ link: '', year: new Date().getFullYear(), category_id: '', price: '15,00', pack_price: '', auto_publish: true, hide_gallery: false, watermark_mode: 'site', keep_in_drive: true });
+const blank = () => ({ link: '', year: '', category_id: '', price: '15,00', pack_price: '', auto_publish: true, hide_gallery: false, watermark_mode: 'site', keep_in_drive: true });
 
 function SourceForm({ initial, onSubmit, submitLabel, withLink }) {
   const { categories = [] } = useSite();
@@ -30,9 +30,9 @@ function SourceForm({ initial, onSubmit, submitLabel, withLink }) {
   };
   return (
     <form className="stack" onSubmit={submit}>
-      {withLink && <label className="field"><span>Link da pasta do ano no Google Drive</span><input className="input" required value={f.link} onChange={set('link')} placeholder="https://drive.google.com/drive/folders/…" /></label>}
+      {withLink && <label className="field"><span>Link da pasta geral no Google Drive (ex.: "tudoehfesta", com os anos dentro)</span><input className="input" required value={f.link} onChange={set('link')} placeholder="https://drive.google.com/drive/folders/…" /></label>}
       <div className="grid-3">
-        <label className="field"><span>Ano</span><input className="input" type="number" value={f.year} onChange={set('year')} /></label>
+        <label className="field"><span>Ano <small>(opcional)</small></span><input className="input" type="number" value={f.year ?? ''} onChange={set('year')} placeholder="vários anos" /><small>Em branco se a pasta tiver vários anos dentro.</small></label>
         <label className="field"><span>Categoria dos eventos</span>
           <select className="select" value={f.category_id || ''} onChange={set('category_id')}>
             <option value="">Sem categoria</option>
@@ -83,7 +83,7 @@ function SourceCard({ s, reload }) {
       <div className="row between">
         <div className="row" style={{ gap: 10 }}>
           <FolderOpen size={22} color="var(--accent)" />
-          <div><b>{s.name || 'Pasta do Drive'}</b><div className="tiny muted">{s.year} · {money(s.price_cents)}/foto · {WM[s.watermark_mode]}{s.hide_gallery ? ' · só selfie' : ''}{s.keep_in_drive ? ' · originais no Drive' : ' · originais no servidor'}{s.auto_publish ? ' · publica sozinho' : ' · revisão manual'}</div></div>
+          <div><b>{s.name || 'Pasta do Drive'}</b><div className="tiny muted">{s.year || 'vários anos'} · {money(s.price_cents)}/foto · {WM[s.watermark_mode]}{s.hide_gallery ? ' · só selfie' : ''}{s.keep_in_drive ? ' · originais no Drive' : ' · originais no servidor'}{s.auto_publish ? ' · publica sozinho' : ' · revisão manual'}</div></div>
         </div>
         <span className="row small" style={{ gap: 6 }}><span className={`status-dot ${dot}`} /> {label}</span>
       </div>
@@ -115,7 +115,7 @@ function SourceCard({ s, reload }) {
       )}
       {edit && (
         <SourceForm
-          initial={{ year: s.year, category_id: s.category_id || '', price: centsToInput(s.price_cents), pack_price: centsToInput(s.pack_price_cents), auto_publish: s.auto_publish, hide_gallery: s.hide_gallery, watermark_mode: s.watermark_mode, keep_in_drive: s.keep_in_drive }}
+          initial={{ year: s.year ?? '', category_id: s.category_id || '', price: centsToInput(s.price_cents), pack_price: centsToInput(s.pack_price_cents), auto_publish: s.auto_publish, hide_gallery: s.hide_gallery, watermark_mode: s.watermark_mode, keep_in_drive: s.keep_in_drive }}
           submitLabel="Salvar padrões"
           onSubmit={async (f) => { await api(`/studio/drive/${s.id}`, { method: 'PUT', body: f }); setEdit(false); toast('Padrões salvos'); reload(); }}
         />
@@ -149,14 +149,17 @@ export default function Drive() {
 
       <div className="card-flat stack small">
         <b>Como funciona</b>
-        <p className="muted">Ligue aqui a <b>pasta geral do ano</b>. Dentro dela, organize por mês e crie uma pasta por evento, com a data no fim do nome. Toda pasta que tiver fotos vira um evento; as de ano e mês só organizam:</p>
-        <pre style={{ margin: 0, padding: 12, background: '#fff', borderRadius: 8, fontSize: 13, overflowX: 'auto' }}>{`2026/
+        <p className="muted">Ligue aqui a <b>pasta geral</b> (ex.: "tudoehfesta") com os anos dentro. Organize por ano e mês e crie uma pasta por evento, com a data no fim do nome. Toda pasta que tiver fotos vira um evento; as de ano e mês só organizam:</p>
+        <pre style={{ margin: 0, padding: 12, background: '#fff', borderRadius: 8, fontSize: 13, overflowX: 'auto' }}>{`tudoehfesta/
+ 2026/
   10/
     aniversario_luiz_05_10_2026/        → evento "Aniversario Luiz", 05/10/2026
     formatura_futurao_20_10_2026/       → evento "Formatura Futurao", 20/10/2026
   11/
     casamento_ana_e_joao_15_11_2026/    → evento "Casamento Ana e Joao", 15/11/2026
-  foto-solta.jpg                        → evento "Fotos de 2026"`}</pre>
+  foto-solta.jpg                        → evento "Fotos de outubro de 2026" (se estiver solta em 10/)
+ 2008/
+  foto-antiga.jpg                       → evento "Eventos de 2008"`}</pre>
         <p className="muted">Quer um evento com cadastro próprio (ex.: uma <b>formatura</b> na categoria Formaturas)? Crie o evento em <Link to="/painel/eventos/novo" style={{ textDecoration: 'underline' }}>Novo evento</Link> e cole o link da pasta dele no quadro "Pasta do Google Drive". A pasta do ano reconhece essa pasta e não duplica nada.</p>
         <p className="muted">A cada {info.sync_minutes} minutos o sistema confere a pasta, cria os eventos, importa as fotos novas, recusa repetidas, corrompidas e de resolução baixa, reconhece os rostos e publica. Pode ir colocando fotos durante o evento.</p>
         {info.mode === 'service_account' && <p>Compartilhe a pasta (como <b>Leitor</b>) com: <code style={{ userSelect: 'all' }}>{info.share_with}</code></p>}
