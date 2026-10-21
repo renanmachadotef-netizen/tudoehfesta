@@ -8,7 +8,7 @@ import { fail, rateLimit } from '../util.js';
 // Rosto do cliente (monitoramento + "borrar minhas imagens") e fotos encontradas para ele.
 // Guardamos so os vetores (128 numeros), com consentimento explicito; a selfie nunca sai do aparelho.
 const r = Router();
-r.use(requireUser);
+r.use(['/me', '/my'], requireUser);
 
 r.get('/me/face', async (req, res) => {
   const u = await db.one(

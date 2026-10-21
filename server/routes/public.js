@@ -112,18 +112,20 @@ r.get('/events/:slug', async (req, res) => {
        ${EVENT_JOINS} where e.slug = $1`,
     [req.params.slug],
   );
-  const canSee = row && (row.status === 'published' || req.user?.role === 'admin' || req.user?.id === row.photographer_id);
+  const owner = req.user?.role === 'admin' || req.user?.id === row?.photographer_id;
+  // Acervo do ano nao tem pagina: as fotos dele so aparecem pela busca por selfie.
+  const canSee = row && (owner || (row.status === 'published' && row.kind === 'event'));
   if (!canSee) fail(404, 'Evento não encontrado.');
   db.query('update events set views = views + 1 where id = $1', [row.id]).catch(() => {});
   res.json({ event: eventCard(row) });
 });
 
 r.get('/events/:slug/photos', async (req, res) => {
-  const ev = await db.one('select id, status, photographer_id, hide_gallery from events where slug = $1', [req.params.slug]);
+  const ev = await db.one('select id, status, photographer_id, hide_gallery, kind from events where slug = $1', [req.params.slug]);
   const owner = req.user?.role === 'admin' || req.user?.id === ev?.photographer_id;
   if (!ev || (ev.status !== 'published' && !owner)) fail(404, 'Evento não encontrado.');
   // Galeria oculta: as fotos so aparecem pela busca por selfie.
-  if (ev.hide_gallery && !owner) return res.json({ photos: [], more: false, hidden: true });
+  if ((ev.hide_gallery || ev.kind === 'pool') && !owner) return res.json({ photos: [], more: false, hidden: true });
   const limit = Math.min(Number(req.query.limit) || 120, 300);
   const offset = Math.max(Number(req.query.offset) || 0, 0);
   const rows = await db.many(
@@ -138,7 +140,7 @@ r.get('/photos', async (req, res) => {
   if (!ids.length) return res.json({ photos: [] });
   const rows = await db.many(
     `select p.id, p.event_id, p.width, p.height, p.key, e.title as event_title, e.slug as event_slug, e.price_cents
-       from photos p join events e on e.id = p.event_id and e.status = 'published' and not e.hide_gallery
+       from photos p join events e on e.id = p.event_id and e.status = 'published' and not e.hide_gallery and e.kind = 'event'
       where p.id = any($1::int[]) and p.key is not null`,
     [ids],
   );
@@ -173,27 +175,6 @@ r.post('/faces/search', rateLimit('faces', 40, 60_000), async (req, res) => {
   const eventIds = [...new Set(photos.map((p) => p.event_id))];
   const events = (await db.many(`select ${EVENT_CARD} ${EVENT_JOINS} where e.id = any($1::int[]) order by e.event_date desc`, [eventIds])).map(eventCard);
   res.json({ photos, events });
-});
-
-// "Todas as fotos de 2026": acervo do ano + eventos que mostram as fotos (eventos so por selfie ficam de fora).
-r.get('/years/:year/photos', async (req, res) => {
-  const year = Number(req.params.year);
-  if (!(year >= 1990 && year <= 2100)) fail(404, 'Ano inválido.');
-  const limit = Math.min(Number(req.query.limit) || 120, 300);
-  const offset = Math.max(Number(req.query.offset) || 0, 0);
-  const rows = await db.many(
-    `select p.id, p.event_id, p.width, p.height, p.key, e.title as event_title, e.slug as event_slug, e.price_cents, e.kind as event_kind
-       from photos p join events e on e.id = p.event_id
-      where e.status = 'published' and not e.hide_gallery and p.key is not null
-        and e.event_date >= make_date($1, 1, 1) and e.event_date < make_date($1 + 1, 1, 1)
-      order by e.event_date desc, e.id, p.sort_key nulls last, p.id
-      limit $2 offset $3`,
-    [year, limit + 1, offset],
-  );
-  res.json({
-    photos: rows.slice(0, limit).map((p) => ({ ...photoOut(p), event_title: p.event_title, event_slug: p.event_slug, price_cents: p.price_cents })),
-    more: rows.length > limit,
-  });
 });
 
 r.get('/photographers', async (_req, res) => {
