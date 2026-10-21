@@ -92,11 +92,19 @@ r.post('/orders', requireUser, rateLimit('orders', 20, 60_000), async (req, res)
       redirect = await createInfinitePayLink(order, priced.groups, phone);
       await db.query('update orders set checkout_url = $2 where id = $1', [order.id, redirect]);
     } else if (payMethod === 'pix') {
-      const pix = await createPix(order);
-      await db.query(
-        'update orders set mp_payment_id = $2, pix_qr = $3, pix_qr_base64 = $4, pix_expires_at = $5 where id = $1',
-        [order.id, pix.paymentId, pix.qr, pix.qrBase64, pix.expiresAt],
-      );
+      try {
+        const pix = await createPix(order);
+        await db.query(
+          'update orders set mp_payment_id = $2, pix_qr = $3, pix_qr_base64 = $4, pix_expires_at = $5 where id = $1',
+          [order.id, pix.paymentId, pix.qr, pix.qrBase64, pix.expiresAt],
+        );
+      } catch (err) {
+        // Pix do Mercado Pago recusado: se a InfinitePay estiver ativa, o cliente paga por ela em vez de ver erro.
+        if (!opts.infinitepay) throw err;
+        console.error('[pedido] Pix Mercado Pago falhou, usando InfinitePay:', order.code, err.message, err.mp ? JSON.stringify(err.mp).slice(0, 1500) : '');
+        redirect = await createInfinitePayLink(order, priced.groups, phone);
+        await db.query(`update orders set payment_provider = 'infinitepay', checkout_url = $2 where id = $1`, [order.id, redirect]);
+      }
     } else if (payMethod === 'cartao') {
       const pref = await createCheckout(order, priced.items.length);
       await db.query('update orders set mp_preference_id = $2, checkout_url = $3 where id = $1', [order.id, pref.preferenceId, pref.url]);
