@@ -10,6 +10,17 @@ import SelfieSearch from '../components/SelfieSearch.jsx';
 import { Empty } from '../components/Layout.jsx';
 import { useOwned } from './Event.jsx';
 
+// Convite para cadastrar o rosto e receber fotos novas automaticamente.
+function WatchInvite() {
+  const { user } = useSite();
+  return (
+    <div className="alert row" style={{ gap: 10, justifyContent: 'space-between' }}>
+      <span className="small"><b>Quer receber suas fotos novas automaticamente?</b> Cadastre seu rosto e avisamos sempre que você aparecer numa foto.</span>
+      <Link className="btn btn-sm btn-accent" to={user ? '/meu-rosto' : '/cadastro?voltar=/meu-rosto'}>Ativar</Link>
+    </div>
+  );
+}
+
 // Resultado da busca facial agrupado por evento.
 export function FaceResults({ result }) {
   const { items } = useCart();
@@ -34,6 +45,7 @@ export function FaceResults({ result }) {
 
   return (
     <div className="stack" style={{ gap: 30 }}>
+      <WatchInvite />
       <div className="row between card-flat" style={{ padding: 16 }}>
         <span><b>{plural(result.photos.length, 'foto', 'fotos')}</b> em {plural(groups.length, 'evento', 'eventos')}</span>
         {allMissing.length > 0 && (
@@ -46,10 +58,10 @@ export function FaceResults({ result }) {
         <section key={ev.id} className="stack" style={{ gap: 12 }}>
           <div className="row between">
             <div>
-              <Link to={`/evento/${ev.slug}`}><h3>{ev.title}</h3></Link>
+              {ev.kind === 'pool' ? <h3>{ev.title} <span className="badge" style={{ verticalAlign: 3 }}>Acervo {String(ev.event_date).slice(0, 4)}</span></h3> : <Link to={`/evento/${ev.slug}`}><h3>{ev.title}</h3></Link>}
               <span className="small muted row" style={{ gap: 5 }}><Calendar size={13} /> {dateBR(ev.event_date)} {ev.city && `· ${ev.city}`} · {plural(photos.length, 'foto', 'fotos')}</span>
             </div>
-            <Link to={`/evento/${ev.slug}`} className="btn btn-sm btn-ghost">Ver evento <ArrowRight size={14} /></Link>
+            {ev.kind !== 'pool' && <Link to={`/evento/${ev.slug}`} className="btn btn-sm btn-ghost">Ver evento <ArrowRight size={14} /></Link>}
           </div>
           <PhotoGrid photos={photos} rowHeight={180} owned={owned} eventInfo={{ event_title: ev.title, event_slug: ev.slug, price_cents: ev.price_cents }} />
         </section>

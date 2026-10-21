@@ -69,10 +69,10 @@ function EventForm({ initial, onSaved }) {
           </select>
           <small>Trocar refaz as vitrines em segundo plano. <Link to="/painel/marca-dagua" style={{ textDecoration: 'underline' }}>Configurar minha marca</Link></small>
         </label>
-        <label className="check" style={{ alignSelf: 'center' }}>
-          <input type="checkbox" checked={!!f.hide_gallery} onChange={(e) => setF({ ...f, hide_gallery: e.target.checked })} />
-          <span><b><EyeOff size={14} style={{ verticalAlign: -2 }} /> Não exibir as fotos do evento</b><br /><span className="muted">A galeria fica oculta: cada pessoa só vê as fotos em que aparece, pela busca por selfie.</span></span>
-        </label>
+        <div className="field"><span>Como os clientes encontram as fotos</span>
+          <label className="check"><input type="radio" name="visibilidade" checked={!f.hide_gallery} onChange={() => setF({ ...f, hide_gallery: false })} /><span><b>Mostrar todas as fotos</b> <span className="muted">· galeria aberta + busca por selfie</span></span></label>
+          <label className="check"><input type="radio" name="visibilidade" checked={!!f.hide_gallery} onChange={() => setF({ ...f, hide_gallery: true })} /><span><b><EyeOff size={14} style={{ verticalAlign: -2 }} /> Só por reconhecimento facial</b> <span className="muted">· cada pessoa vê só as fotos em que aparece</span></span></label>
+        </div>
       </div>
       <div className="card-flat stack">
         <b>Preços</b>

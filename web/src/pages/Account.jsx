@@ -7,6 +7,7 @@ import { money, dateBR, dateTimeBR } from '../lib/format.js';
 import { Loading, Empty } from '../components/Layout.jsx';
 import { PhotoGrid } from '../components/Photos.jsx';
 import { AuthForm } from './Auth.jsx';
+import { MatchedPhotos, FacePrivacy } from './FaceAccount.jsx';
 
 const STATUS = { paid: ['Pago', 'badge-ok'], pending: ['Aguardando', 'badge-warn'], cancelled: ['Cancelado', 'badge-bad'], refunded: ['Estornado', 'badge-bad'] };
 export const StatusBadge = ({ status }) => <span className={`badge ${STATUS[status]?.[1] || ''}`}>{STATUS[status]?.[0] || status}</span>;
@@ -16,7 +17,7 @@ function MyPhotos() {
   if (loading) return <Loading />;
   const photos = data?.photos || [];
   if (!photos.length) {
-    return <Empty icon={Images} title="Nenhuma foto comprada ainda"><Link to="/buscar" className="btn btn-accent">Achar minhas fotos</Link></Empty>;
+    return <Empty icon={Images} title="Nenhuma foto adquirida ainda"><Link to="/encontradas" className="btn btn-accent">Ver fotos encontradas para você</Link></Empty>;
   }
   const owned = new Set(photos.map((p) => p.id));
   const groups = [];
@@ -104,7 +105,7 @@ function MyAccount() {
 export default function Account({ tab }) {
   const { user, ready } = useSite();
   const nav = useNavigate();
-  useTitle(tab === 'fotos' ? 'Minhas fotos' : tab === 'pedidos' ? 'Meus pedidos' : 'Minha conta');
+  useTitle({ fotos: 'Fotos adquiridas', encontradas: 'Encontradas para você', rosto: 'Meu rosto e privacidade', pedidos: 'Meus pedidos' }[tab] || 'Minha conta');
   if (!ready) return <Loading />;
   if (!user) {
     return (
@@ -117,10 +118,14 @@ export default function Account({ tab }) {
     <div className="container section-sm stack" style={{ gap: 22 }}>
       <h1 style={{ fontSize: 'clamp(28px,4vw,40px)' }}>Olá, {user.name.split(' ')[0]}</h1>
       <div className="tabs">
-        <button className={tab === 'fotos' ? 'active' : ''} onClick={() => nav('/minhas-fotos')}>Minhas fotos</button>
+        <button className={tab === 'encontradas' ? 'active' : ''} onClick={() => nav('/encontradas')}>Encontradas para você{user.matches_new > 0 && <> <span className="dot-new">{user.matches_new}</span></>}</button>
+        <button className={tab === 'fotos' ? 'active' : ''} onClick={() => nav('/minhas-fotos')}>Adquiridas</button>
+        <button className={tab === 'rosto' ? 'active' : ''} onClick={() => nav('/meu-rosto')}>Meu rosto e privacidade</button>
         <button className={tab === 'pedidos' ? 'active' : ''} onClick={() => nav('/meus-pedidos')}>Pedidos</button>
         <button className={tab === 'conta' ? 'active' : ''} onClick={() => nav('/conta')}>Meus dados</button>
       </div>
+      {tab === 'encontradas' && <MatchedPhotos />}
+      {tab === 'rosto' && <FacePrivacy />}
       {tab === 'fotos' && <MyPhotos />}
       {tab === 'pedidos' && <MyOrders />}
       {tab === 'conta' && <MyAccount />}

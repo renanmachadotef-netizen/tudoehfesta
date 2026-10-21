@@ -5,7 +5,9 @@ import { db } from '../db.js';
 import { requireUser } from '../auth.js';
 import { priceCart, getSetting } from '../pricing.js';
 import { createPix, createCheckout, mpEnabled, syncPayment, findPaymentsByReference, paymentOptions, createInfinitePayLink, checkInfinitePay } from '../payments.js';
-import { originalStream } from '../originals.js';
+import { originalStream, withOriginal } from '../originals.js';
+import { blurredOriginal } from '../storage.js';
+import { blurBoxesFor } from '../matching.js';
 import { photoOut } from './public.js';
 import { fail, orderCode, cleanText, rateLimit } from '../util.js';
 
@@ -200,6 +202,14 @@ const downloadName = (p) => `tudoehfesta-${p.event_slug}-${p.id}${path.extname(p
 r.get('/download/:photoId', requireUser, async (req, res) => {
   const [p] = await ownedPhotos(req.user, [Number(req.params.photoId)]);
   if (!p) fail(404, 'Foto não encontrada nas suas compras.');
+  // Quem pediu "borrar minhas imagens" sai borrado tambem no original de quem compra (menos para ele mesmo).
+  const boxes = await blurBoxesFor(p.id, req.user.id);
+  if (boxes.length) {
+    const buf = await withOriginal(p.original_path, (file) => blurredOriginal(file, boxes));
+    res.setHeader('Content-Type', 'image/jpeg');
+    res.setHeader('Content-Disposition', `attachment; filename="${downloadName(p).replace(/.w+$/, '.jpg')}"`);
+    return res.end(buf);
+  }
   const stream = await originalStream(p.original_path);
   const ext = path.extname(downloadName(p)).toLowerCase();
   res.setHeader('Content-Type', ext === '.png' ? 'image/png' : ext === '.webp' ? 'image/webp' : 'image/jpeg');
@@ -225,6 +235,14 @@ r.get('/download-zip', requireUser, async (req, res) => {
     if (final) res.end();
   });
   for (const p of photos) {
+    const boxes = await blurBoxesFor(p.id, req.user.id);
+    if (boxes.length) {
+      const entry = new ZipPassThrough(downloadName(p).replace(/.w+$/, '.jpg'));
+      zip.add(entry);
+      const buf = await withOriginal(p.original_path, (file) => blurredOriginal(file, boxes));
+      entry.push(new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength), true);
+      continue;
+    }
     const entry = new ZipPassThrough(downloadName(p));
     zip.add(entry);
     const s = await originalStream(p.original_path);

@@ -182,6 +182,15 @@ function Payouts() {
 function Events() {
   const { toast } = useSite();
   const { data, loading, error, reload } = useApi('/admin/events');
+  const purge = async (e) => {
+    const typed = prompt(`Excluir DEFINITIVAMENTE "${e.title}", com todas as fotos e os pedidos dele? Isso não pode ser desfeito.\n\nDigite o nome do evento para confirmar:`);
+    if (typed == null) return;
+    try {
+      const d = await api(`/admin/events/${e.id}/purge`, { method: 'POST', body: { confirm: typed } });
+      toast(`Excluído: ${d.photos} fotos e ${d.orders} pedidos`);
+      reload();
+    } catch (err) { toast(err.message); }
+  };
   const setStatus = async (e, status) => {
     await api(`/admin/events/${e.id}/status`, { method: 'PUT', body: { status } });
     toast('Status alterado');
@@ -193,15 +202,16 @@ function Events() {
     <div className="stack">
       <PageHead title="Todos os eventos"><Link to="/painel/eventos/novo" className="btn btn-sm btn-accent">Novo evento (meu)</Link></PageHead>
       <div className="table-wrap"><table className="table">
-        <thead><tr><th>Evento</th><th>Fotógrafo</th><th>Status</th><th className="num">Fotos</th><th className="num">Rostos</th><th className="num">Visitas</th><th className="num">Vendido</th></tr></thead>
+        <thead><tr><th>Evento</th><th>Fotógrafo</th><th>Status</th><th className="num">Fotos</th><th className="num">Rostos</th><th className="num">Visitas</th><th className="num">Vendido</th><th></th></tr></thead>
         <tbody>{data.events.map((e) => (
           <tr key={e.id}>
-            <td><Link to={`/painel/eventos/${e.id}`} style={{ fontWeight: 600 }}>{e.title}</Link><div className="tiny muted">{dateBR(e.event_date)} · {e.category_name || 'sem categoria'}</div></td>
+            <td><Link to={`/painel/eventos/${e.id}`} style={{ fontWeight: 600 }}>{e.title}</Link><div className="tiny muted">{dateBR(e.event_date)} · {e.kind === 'pool' ? 'acervo do ano' : e.category_name || 'sem categoria'}</div></td>
             <td className="small">{e.photographer_name}</td>
             <td><select className="select" style={{ height: 32, width: 130, fontSize: 13 }} value={e.status} onChange={(ev) => setStatus(e, ev.target.value)}>
               {Object.entries(EVENT_STATUS).map(([k, [label]]) => <option key={k} value={k}>{label}</option>)}
             </select></td>
             <td className="num">{e.photo_count}</td><td className="num">{e.face_count}</td><td className="num">{e.views}</td><td className="num">{money(e.gross_cents)}</td>
+            <td><button className="btn btn-sm btn-danger" onClick={() => purge(e)}>Excluir</button></td>
           </tr>
         ))}</tbody>
       </table></div>

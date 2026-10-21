@@ -28,7 +28,7 @@ export default function EventsList() {
                     : <div style={{ width: 60, height: 44, borderRadius: 6, background: 'var(--surface-2)', display: 'grid', placeItems: 'center' }}><Camera size={16} /></div>}
                 </Link>
               </td>
-              <td><Link to={`/painel/eventos/${e.id}`} style={{ fontWeight: 650 }}>{e.title}</Link><div className="tiny muted">{dateBR(e.event_date)} · {e.city || 'sem cidade'} · {money(e.price_cents)}/foto</div></td>
+              <td><Link to={`/painel/eventos/${e.id}`} style={{ fontWeight: 650 }}>{e.title}</Link>{e.kind === 'pool' && <span className="badge" style={{ marginLeft: 6 }} title="Criado pela pasta do Drive: aparece só na busca e na galeria do ano">Acervo do ano</span>}<div className="tiny muted">{dateBR(e.event_date)} · {e.city || 'sem cidade'} · {money(e.price_cents)}/foto</div></td>
               <td><span className={`badge ${EVENT_STATUS[e.status][1]}`}>{EVENT_STATUS[e.status][0]}</span></td>
               <td className="num">{e.photo_count}</td>
               <td className="num"><ScanFace size={13} style={{ verticalAlign: -2 }} /> {e.face_count}</td>

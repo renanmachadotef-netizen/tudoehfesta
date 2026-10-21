@@ -520,6 +520,51 @@ r.delete('/drive/:id', async (req, res) => {
 
 // ---------- Pasta do Drive de um evento especifico (ex.: formatura com a pasta propria) ----------
 
+// Junta as fotos de um evento (normalmente do acervo do ano) neste evento cadastrado: fotos, rostos, vendas e
+// sugestoes vao junto; a vitrine e refeita com a marca d'agua deste evento. Nada e duplicado.
+async function mergeInto(other, ev) {
+  await db.tx(async (t) => {
+    await t.query('update events set drive_folder_id = null where id = $1', [other.id]);
+    await t.query('update photos set event_id = $2, needs_render = true where event_id = $1', [other.id, ev.id]);
+    await t.query('update faces set event_id = $2, year = $3 where event_id = $1', [other.id, ev.id, Number(String(ev.event_date).slice(0, 4))]);
+    await t.query('update order_items set event_id = $2 where event_id = $1', [other.id, ev.id]);
+    await t.query('delete from drive_sources where event_id = $1', [other.id]);
+    await t.query('delete from events where id = $1', [other.id]);
+  });
+  invalidateFaces();
+}
+
+// Acervo do ano (pastas importadas pela pasta geral), para escolher a tag ao cadastrar um evento.
+r.get('/pool', async (req, res) => {
+  const q = cleanText(req.query.q, 80);
+  const rows = await db.many(
+    `select ${EVENT_CARD}, e.drive_folder_path,
+            (select min(p.tag) from photos p where p.event_id = e.id) as tag
+       ${EVENT_JOINS}
+      where e.kind = 'pool' and ($1::boolean or e.photographer_id = $2)
+        and ($3::text is null or e.title ilike '%' || $3 || '%' or e.drive_folder_path ilike '%' || $3 || '%')
+      order by e.event_date desc, e.id desc limit 100`,
+    [req.user.role === 'admin', req.user.id, q],
+  );
+  res.json({ pool: rows.map(eventCard) });
+});
+
+// Puxa para este evento as fotos marcadas com a tag escolhida (um grupo do acervo).
+r.post('/events/:id/attach', async (req, res) => {
+  const ev = await ownEvent(req, req.params.id);
+  if (ev.kind === 'pool') fail(400, 'Este já é um grupo do acervo. Cadastre um evento e puxe as fotos para ele.');
+  const other = await db.one(`select id, title, drive_folder_id, drive_folder_path, photographer_id from events where id = $1 and kind = 'pool'`, [Number(req.body?.pool_event_id)]);
+  if (!other || (other.photographer_id !== req.user.id && req.user.role !== 'admin')) fail(404, 'Grupo do acervo não encontrado.');
+  if (ev.drive_folder_id && other.drive_folder_id && ev.drive_folder_id !== other.drive_folder_id) {
+    fail(409, 'Este evento já está ligado a outra pasta. Desligue a pasta atual antes.');
+  }
+  const photos = await db.one('select count(*)::int as n from photos where event_id = $1', [other.id]);
+  await mergeInto(other, ev);
+  await db.query('update events set drive_folder_id = coalesce(drive_folder_id, $2), drive_folder_path = coalesce($3, drive_folder_path) where id = $1',
+    [ev.id, other.drive_folder_id, other.drive_folder_path]);
+  res.json({ ok: true, photos: photos.n, from: other.drive_folder_path || other.title });
+});
+
 r.get('/events/:id/drive', async (req, res) => {
   const ev = await ownEvent(req, req.params.id);
   const s = await db.one(
@@ -529,7 +574,8 @@ r.get('/events/:id/drive', async (req, res) => {
        from drive_sources s where s.event_id = $1`,
     [ev.id],
   );
-  res.json({ info: driveInfo(), source: s, folder_id: ev.drive_folder_id });
+  res.json({ info: driveInfo(), source: s, folder_id: ev.drive_folder_id, folder_path: ev.drive_folder_path, kind: ev.kind,
+    photos: (await db.one('select count(*)::int as n from photos where event_id = $1', [ev.id])).n });
 });
 
 r.post('/events/:id/drive', async (req, res) => {
@@ -538,20 +584,9 @@ r.post('/events/:id/drive', async (req, res) => {
   const folderId = parseFolderId(req.body?.link);
   if (!folderId) fail(400, 'Cole o link de uma pasta do Google Drive.');
   const name = await folderName(folderId);
-  const other = await db.one('select id, title from events where drive_folder_id = $1 and id <> $2', [folderId, ev.id]);
-  if (other) {
-    // A pasta do ano ja tinha criado um evento para esta pasta: as fotos passam para este evento.
-    const sold = await db.one('select count(*)::int as n from order_items where event_id = $1', [other.id]);
-    if (sold.n) fail(409, `Essa pasta já está no evento "${other.title}", que tem vendas. Use aquele evento ou fale com o suporte.`);
-    await db.tx(async (t) => {
-      await t.query('update events set drive_folder_id = null where id = $1', [other.id]);
-      await t.query('update photos set event_id = $2, needs_render = true where event_id = $1', [other.id, ev.id]);
-      await t.query('update faces set event_id = $2, year = $3 where event_id = $1', [other.id, ev.id, Number(String(ev.event_date).slice(0, 4))]);
-      await t.query('delete from events where id = $1', [other.id]);
-    });
-    invalidateFaces();
-  }
-  await db.query('update events set drive_folder_id = $2 where id = $1', [ev.id, folderId]);
+  const other = await db.one('select id, title, drive_folder_path from events where drive_folder_id = $1 and id <> $2', [folderId, ev.id]);
+  if (other) await mergeInto(other, ev);
+  await db.query('update events set drive_folder_id = $2, drive_folder_path = coalesce($3, drive_folder_path, $4) where id = $1', [ev.id, folderId, other?.drive_folder_path || null, name]);
   await db.query(
     `insert into drive_sources (photographer_id, folder_id, name, year, kind, event_id, category_id, price_cents, pack_price_cents,
        auto_publish, hide_gallery, watermark_mode, keep_in_drive, last_status)
@@ -567,6 +602,7 @@ r.post('/events/:id/drive', async (req, res) => {
 r.delete('/events/:id/drive', async (req, res) => {
   const ev = await ownEvent(req, req.params.id);
   await db.query('delete from drive_sources where event_id = $1', [ev.id]);
+  if (req.query.release === '1') await db.query('update events set drive_folder_id = null, drive_folder_path = null where id = $1', [ev.id]);
   res.json({ ok: true });
 });
 

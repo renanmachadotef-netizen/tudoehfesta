@@ -28,14 +28,15 @@ export function encodeDescriptor(arr) {
 async function loadScope(scope) {
   const hit = cache.get(scope);
   if (hit && hit.version === version) return hit;
-  let where = 'f.event_id in (select id from events where status = \'published\')';
+  // Rostos borrados a pedido do proprio cliente nunca aparecem na busca de outras pessoas.
+  let where = 'f.blurred_user_id is null and f.event_id in (select id from events where status = \'published\')';
   const params = [];
   if (scope.startsWith('year:')) {
     params.push(Number(scope.slice(5)));
     where += ` and f.year = $${params.length}`;
   } else if (scope.startsWith('event:')) {
     params.push(Number(scope.slice(6)));
-    where = `f.event_id = $${params.length}`; // dentro do evento vale tambem para o painel do fotografo
+    where = `f.blurred_user_id is null and f.event_id = $${params.length}`;
   }
   const rows = await db.many(`select f.photo_id, f.event_id, f.descriptor from faces f where ${where}`, params);
   const data = new Float32Array(rows.length * DIM);

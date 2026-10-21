@@ -66,25 +66,52 @@ export async function saveOriginal({ tmpPath, eventId, photoId, originalName, sh
   };
 }
 
-async function renderVariant(input, maxSide, quality, wm, outFile) {
+// Borra rostos (caixas normalizadas 0-1, ja na orientacao correta) de quem pediu "borrar minhas imagens".
+export async function blurFaces(buf, width, height, boxes) {
+  if (!boxes?.length) return buf;
+  const layers = [];
+  for (const b of boxes) {
+    if (!b || !(b.w > 0) || !(b.h > 0)) continue;
+    const padX = b.w * 0.35;
+    const padY = b.h * 0.45;
+    const left = Math.max(0, Math.floor((b.x - padX) * width));
+    const top = Math.max(0, Math.floor((b.y - padY) * height));
+    const w = Math.min(width - left, Math.ceil((b.w + 2 * padX) * width));
+    const h = Math.min(height - top, Math.ceil((b.h + 2 * padY) * height));
+    if (w < 4 || h < 4) continue;
+    const sigma = Math.max(10, Math.round(Math.max(w, h) / 5));
+    layers.push({ input: await sharp(buf).extract({ left, top, width: w, height: h }).blur(sigma).toBuffer(), left, top });
+  }
+  return layers.length ? sharp(buf).composite(layers).toBuffer() : buf;
+}
+
+// Original em alta com rostos borrados (para quem compra uma foto em que outra pessoa pediu para ser borrada).
+export async function blurredOriginal(file, boxes) {
+  const { data, info } = await sharp(file).rotate().toBuffer({ resolveWithObject: true });
+  const out = await blurFaces(data, info.width, info.height, boxes);
+  return sharp(out).jpeg({ quality: 92, mozjpeg: true }).toBuffer();
+}
+
+async function renderVariant(input, maxSide, quality, wm, outFile, blurBoxes) {
   const resized = await sharp(input)
     .rotate()
     .resize({ width: maxSide, height: maxSide, fit: 'inside', withoutEnlargement: true })
     .toBuffer({ resolveWithObject: true });
   await fsp.mkdir(path.dirname(outFile), { recursive: true });
-  await sharp(resized.data)
+  const base = await blurFaces(resized.data, resized.info.width, resized.info.height, blurBoxes);
+  await sharp(base)
     .composite(await watermarkLayers(wm, resized.info.width, resized.info.height))
     .webp({ quality, effort: 4 })
     .toFile(outFile);
 }
 
 // Gera vitrine e miniatura a partir do original com a marca d'agua atual do evento. Devolve a nova key.
-export async function renderPhoto({ eventId, photoId, originalPath, oldKey, srcFile }) {
+export async function renderPhoto({ eventId, photoId, originalPath, oldKey, srcFile, blurBoxes }) {
   const wm = await watermarkForEvent(eventId);
   const key = crypto.randomBytes(8).toString('hex');
   const src = srcFile || originalAbsPath(originalPath);
-  await renderVariant(src, 1400, 78, wm, path.join(dirs.public, 'p', String(eventId), fileName(photoId, key)));
-  await renderVariant(src, 480, 70, wm, path.join(dirs.public, 't', String(eventId), fileName(photoId, key)));
+  await renderVariant(src, 1400, 78, wm, path.join(dirs.public, 'p', String(eventId), fileName(photoId, key)), blurBoxes);
+  await renderVariant(src, 480, 70, wm, path.join(dirs.public, 't', String(eventId), fileName(photoId, key)), blurBoxes);
   if (oldKey !== key) await removeVariants(eventId, photoId, oldKey);
   return key;
 }

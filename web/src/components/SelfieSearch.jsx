@@ -5,7 +5,7 @@ import { fileToCanvas, loadFaceApi, selfieDescriptor, selfieStore } from '../lib
 
 // Captura a selfie (camera ou arquivo), gera o vetor do rosto no aparelho e entrega ao pai.
 // onSelfie({ descriptor, preview }) e chamado quando ha selfie pronta (inclusive a ja salva nesta aba).
-export default function SelfieSearch({ onSelfie, title = 'Encontre suas fotos com uma selfie', subtitle, busy }) {
+export default function SelfieSearch({ onSelfie, title = 'Encontre suas fotos com uma selfie', subtitle, busy, consentText, actionLabel = 'Buscar minhas fotos', readyTitle = 'Sua selfie está pronta' }) {
   const [selfie, setSelfie] = useState(() => selfieStore.get());
   const [consent, setConsent] = useState(!!selfieStore.get());
   const [mode, setMode] = useState('idle'); // idle | camera | working
@@ -109,7 +109,7 @@ export default function SelfieSearch({ onSelfie, title = 'Encontre suas fotos co
           <div className="face-ring"><div><ScanFace size={30} color="#ffb21a" /></div></div>
         )}
         <div className="stack" style={{ gap: 4 }}>
-          <h3 style={{ fontSize: 20 }}>{selfie ? 'Sua selfie está pronta' : title}</h3>
+          <h3 style={{ fontSize: 20 }}>{selfie ? readyTitle : title}</h3>
           <p className="small" style={{ color: 'rgba(255,255,255,.7)' }}>
             {selfie
               ? 'Usamos sua selfie só neste aparelho para buscar suas fotos. Pode trocar quando quiser.'
@@ -139,8 +139,8 @@ export default function SelfieSearch({ onSelfie, title = 'Encontre suas fotos co
             <label className="check">
               <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} />
               <span>
-                Autorizo usar minha selfie para encontrar minhas fotos. Ela é analisada no meu aparelho, não é enviada nem
-                guardada. <Link to="/privacidade" style={{ textDecoration: 'underline' }}>Saiba mais</Link>
+                {consentText || 'Autorizo usar minha selfie para encontrar minhas fotos. Ela é analisada no meu aparelho, não é enviada nem guardada.'}{' '}
+                <Link to="/privacidade" style={{ textDecoration: 'underline' }}>Saiba mais</Link>
               </span>
             </label>
           )}
@@ -148,7 +148,7 @@ export default function SelfieSearch({ onSelfie, title = 'Encontre suas fotos co
             {selfie ? (
               <>
                 <button className="btn btn-accent" disabled={working} onClick={() => onSelfie?.(selfie)}>
-                  <ScanFace size={18} /> {working ? 'Buscando…' : 'Buscar minhas fotos'}
+                  <ScanFace size={18} /> {working ? 'Aguarde…' : actionLabel}
                 </button>
                 <button className="btn btn-ghost" style={{ color: '#fff', borderColor: 'rgba(255,255,255,.25)' }} disabled={working} onClick={() => { selfieStore.clear(); setSelfie(null); }}>
                   Trocar selfie

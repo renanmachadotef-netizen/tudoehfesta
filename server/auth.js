@@ -77,7 +77,8 @@ export async function loadUser(req, _res, next) {
   const data = verifyToken(readCookie(req, COOKIE));
   if (data?.uid) {
     req.user = await db.one(
-      `select u.id, u.email, u.name, u.phone, u.role, p.status as photographer_status, p.slug as photographer_slug
+      `select u.id, u.email, u.name, u.phone, u.role, p.status as photographer_status, p.slug as photographer_slug,
+              (select count(*) from user_matches m where m.user_id = u.id and not m.seen)::int as matches_new
          from users u left join photographers p on p.user_id = u.id where u.id = $1`,
       [data.uid],
     );

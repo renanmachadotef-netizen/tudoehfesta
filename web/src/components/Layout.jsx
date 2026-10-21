@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { Home, Search, ShoppingBag, User, Images, ScanFace, LogOut, LayoutDashboard, ShieldCheck, Camera, Receipt } from 'lucide-react';
+import { Home, Search, ShoppingBag, User, Images, ScanFace, LogOut, LayoutDashboard, ShieldCheck, Camera, Receipt, Sparkles, EyeOff } from 'lucide-react';
 import { useSite } from '../lib/site.jsx';
 import { useCart } from '../lib/cart.js';
 import { api } from '../lib/api.js';
@@ -54,6 +54,7 @@ function UserMenu() {
     <div ref={ref} style={{ position: 'relative' }}>
       <button className="icon-btn" onClick={() => setOpen((o) => !o)} aria-label="Minha conta" style={{ background: 'var(--surface)' }}>
         <b style={{ fontSize: 14 }}>{user.name?.[0]?.toUpperCase() || <User size={18} />}</b>
+        {user.matches_new > 0 && <span className="cart-count">{user.matches_new}</span>}
       </button>
       {open && (
         <div className="menu-pop" onClick={() => setOpen(false)}>
@@ -61,7 +62,9 @@ function UserMenu() {
             <b style={{ display: 'block' }}>{user.name}</b>
             <span className="tiny muted">{user.email}</span>
           </div>
-          <Link to="/minhas-fotos"><Images size={17} /> Minhas fotos</Link>
+          <Link to="/encontradas"><Sparkles size={17} /> Encontradas para você{user.matches_new > 0 && <span className="dot-new" style={{ marginLeft: 'auto' }}>{user.matches_new}</span>}</Link>
+          <Link to="/minhas-fotos"><Images size={17} /> Fotos adquiridas</Link>
+          <Link to="/meu-rosto"><EyeOff size={17} /> Meu rosto e privacidade</Link>
           <Link to="/meus-pedidos"><Receipt size={17} /> Meus pedidos</Link>
           {(user.role === 'photographer' || user.role === 'admin') && (
             <Link to="/painel"><LayoutDashboard size={17} /> Painel do fotógrafo</Link>
@@ -112,7 +115,7 @@ function MobileNav() {
         <ShoppingBag size={21} />Carrinho
         {items.length > 0 && <span className="cart-count" style={{ right: 'calc(50% - 22px)' }}>{items.length}</span>}
       </NavLink>
-      <NavLink to="/minhas-fotos"><Images size={21} />Minhas</NavLink>
+      <NavLink to="/encontradas"><Images size={21} />Minhas</NavLink>
     </nav>
   );
 }

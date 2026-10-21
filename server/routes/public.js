@@ -11,7 +11,7 @@ const r = Router();
 // Colunas comuns para cartoes de evento.
 export const EVENT_CARD = `
   e.id, e.slug, e.title, e.event_date, e.city, e.venue, e.status, e.price_cents, e.pack_price_cents,
-  e.discount_tiers, e.category_id, c.name as category_name, c.slug as category_slug, e.hide_gallery, e.watermark_mode,
+  e.discount_tiers, e.category_id, c.name as category_name, c.slug as category_slug, e.hide_gallery, e.watermark_mode, e.kind,
   ph.display_name as photographer_name, ph.slug as photographer_slug, ph.avatar_path as photographer_avatar,
   (select count(*) from photos p where p.event_id = e.id and p.key is not null)::int as photo_count,
   cv.id as cover_id, cv.key as cover_key`;
@@ -50,16 +50,19 @@ r.get('/site', async (req, res) => {
     getSetting('site', {}),
     db.many(
       `select c.id, c.slug, c.name, c.sort, count(e.id)::int as events
-         from categories c left join events e on e.category_id = c.id and e.status = 'published'
+         from categories c left join events e on e.category_id = c.id and e.status = 'published' and e.kind = 'event'
         group by c.id order by c.sort, c.name`,
     ),
     db.many(
-      `select extract(year from event_date)::int as year, count(*)::int as events
-         from events where status = 'published' group by 1 order by 1 desc`,
+      `select extract(year from e.event_date)::int as year, count(distinct e.id) filter (where e.kind = 'event')::int as events,
+              count(p.id)::int as photos
+         from events e left join photos p on p.event_id = e.id and p.key is not null
+        where e.status = 'published' group by 1 having count(p.id) > 0 or count(distinct e.id) filter (where e.kind = 'event') > 0
+        order by 1 desc`,
     ),
     db.one(
       `select (select count(*) from photos p join events e on e.id = p.event_id and e.status = 'published')::int as photos,
-              (select count(*) from events where status = 'published')::int as events,
+              (select count(*) from events where status = 'published' and kind = 'event')::int as events,
               (select count(*) from photographers where status = 'approved')::int as photographers`,
     ),
   ]);
@@ -75,7 +78,8 @@ r.get('/site', async (req, res) => {
 });
 
 r.get('/events', async (req, res) => {
-  const where = [`e.status = 'published'`];
+  // So eventos cadastrados; o acervo do ano (kind 'pool') aparece na busca e na galeria do ano.
+  const where = [`e.status = 'published'`, `e.kind = 'event'`];
   const params = [];
   const add = (sql, v) => {
     params.push(v);
@@ -171,10 +175,31 @@ r.post('/faces/search', rateLimit('faces', 40, 60_000), async (req, res) => {
   res.json({ photos, events });
 });
 
+// "Todas as fotos de 2026": acervo do ano + eventos que mostram as fotos (eventos so por selfie ficam de fora).
+r.get('/years/:year/photos', async (req, res) => {
+  const year = Number(req.params.year);
+  if (!(year >= 1990 && year <= 2100)) fail(404, 'Ano inválido.');
+  const limit = Math.min(Number(req.query.limit) || 120, 300);
+  const offset = Math.max(Number(req.query.offset) || 0, 0);
+  const rows = await db.many(
+    `select p.id, p.event_id, p.width, p.height, p.key, e.title as event_title, e.slug as event_slug, e.price_cents, e.kind as event_kind
+       from photos p join events e on e.id = p.event_id
+      where e.status = 'published' and not e.hide_gallery and p.key is not null
+        and e.event_date >= make_date($1, 1, 1) and e.event_date < make_date($1 + 1, 1, 1)
+      order by e.event_date desc, e.id, p.sort_key nulls last, p.id
+      limit $2 offset $3`,
+    [year, limit + 1, offset],
+  );
+  res.json({
+    photos: rows.slice(0, limit).map((p) => ({ ...photoOut(p), event_title: p.event_title, event_slug: p.event_slug, price_cents: p.price_cents })),
+    more: rows.length > limit,
+  });
+});
+
 r.get('/photographers', async (_req, res) => {
   const rows = await db.many(
     `select ph.slug, ph.display_name, ph.city, ph.instagram, ph.avatar_path, ph.bio,
-            (select count(*) from events e where e.photographer_id = ph.user_id and e.status = 'published')::int as events,
+            (select count(*) from events e where e.photographer_id = ph.user_id and e.status = 'published' and e.kind = 'event')::int as events,
             (select count(*) from photos p join events e on e.id = p.event_id and e.status = 'published' where e.photographer_id = ph.user_id)::int as photos
        from photographers ph where ph.status = 'approved' order by photos desc, ph.display_name`,
   );
@@ -189,7 +214,7 @@ r.get('/photographers/:slug', async (req, res) => {
   );
   if (!ph) fail(404, 'Fotógrafo não encontrado.');
   const events = (await db.many(
-    `select ${EVENT_CARD} ${EVENT_JOINS} where e.photographer_id = $1 and e.status = 'published' order by e.event_date desc limit 60`,
+    `select ${EVENT_CARD} ${EVENT_JOINS} where e.photographer_id = $1 and e.status = 'published' and e.kind = 'event' order by e.event_date desc limit 60`,
     [ph.user_id],
   )).map(eventCard);
   const { user_id: _omit, ...pub } = ph;

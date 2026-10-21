@@ -47,6 +47,8 @@ createRoot(document.getElementById('root')).render(
               <Route path="carrinho" element={<Cart />} />
               <Route path="pedido/:code" element={<Order />} />
               <Route path="minhas-fotos" element={<Account tab="fotos" />} />
+              <Route path="encontradas" element={<Account tab="encontradas" />} />
+              <Route path="meu-rosto" element={<Account tab="rosto" />} />
               <Route path="meus-pedidos" element={<Account tab="pedidos" />} />
               <Route path="conta" element={<Account tab="conta" />} />
               <Route path="entrar" element={<Auth mode="login" />} />

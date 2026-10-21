@@ -153,14 +153,9 @@ create table if not exists settings (
 insert into categories (slug, name, sort) values
   ('festas', 'Festas', 1),
   ('formaturas', 'Formaturas', 2),
-  ('casamentos', 'Casamentos', 3),
-  ('corridas', 'Corridas e caminhadas', 4),
-  ('esportes', 'Esportes', 5),
-  ('rodeios', 'Rodeios e tradicionalismo', 6),
-  ('shows', 'Shows e baladas', 7),
-  ('corporativos', 'Corporativos', 8),
-  ('escolares', 'Escolares', 9),
-  ('acervo', 'Acervo histórico', 10)
+  ('jantares', 'Jantares', 3),
+  ('esportes', 'Esportivos', 4),
+  ('outros', 'Outros', 5)
 on conflict (slug) do nothing;
 
 insert into settings (key, value) values
@@ -246,3 +241,41 @@ create unique index if not exists drive_sources_event_idx on drive_sources (even
 
 -- v6: pasta geral com varios anos (tudoehfesta/2003..2026/mes/evento): ano da fonte passa a ser opcional.
 alter table drive_sources alter column year drop not null;
+
+-- v7: acervo por ano, rosto do cliente (monitoramento) e "borrar minhas imagens".
+-- events.kind: 'event' = evento cadastrado (aparece nas listas); 'pool' = acervo do ano, criado sozinho a partir
+-- das pastas do Drive (so aparece na busca por ano/selfie). Ligar a pasta a um evento cadastrado migra as fotos.
+alter table events add column if not exists kind text not null default 'event';
+update events set kind = 'pool' where kind = 'event' and drive_source_id in (select id from drive_sources where kind = 'year');
+create index if not exists events_kind_idx on events (kind, status);
+
+-- Rosto cadastrado pelo cliente (so o vetor de 128 numeros; a selfie nao e guardada). Consentimento LGPD explicito.
+create table if not exists user_faces (
+  id serial primary key,
+  user_id integer not null references users(id) on delete cascade,
+  descriptor bytea not null,
+  created_at timestamptz not null default now()
+);
+create index if not exists user_faces_user_idx on user_faces (user_id);
+alter table users add column if not exists face_consent_at timestamptz;
+alter table users add column if not exists blur_me boolean not null default false;
+alter table users add column if not exists needs_face_scan boolean not null default false;
+
+-- Fotos em que o sistema encontrou o cliente (aparecem em "Minhas fotos -> Encontradas para voce").
+create table if not exists user_matches (
+  user_id integer not null references users(id) on delete cascade,
+  photo_id integer not null references photos(id) on delete cascade,
+  distance real not null,
+  seen boolean not null default false,
+  created_at timestamptz not null default now(),
+  primary key (user_id, photo_id)
+);
+
+-- Rosto borrado a pedido do proprio cliente: some das buscas por selfie e e borrado nas vitrines e downloads de terceiros.
+alter table faces add column if not exists blurred_user_id integer references users(id) on delete set null;
+create index if not exists faces_blurred_idx on faces (photo_id) where blurred_user_id is not null;
+
+-- v8: marcador (tag) da pasta de origem em cada foto e caminho da pasta no evento, para puxar fotos do acervo.
+alter table photos add column if not exists tag text;
+alter table events add column if not exists drive_folder_path text;
+create index if not exists photos_tag_idx on photos (tag) where tag is not null;

@@ -5,7 +5,7 @@ import { db } from '../db.js';
 import { requireAdmin, hashPassword } from '../auth.js';
 import { getSetting, setSetting } from '../pricing.js';
 import { markOrderPaid, mpEnabled, paymentOptions } from '../payments.js';
-import { dirs, storeAsset } from '../storage.js';
+import { dirs, storeAsset, removePhotoFiles } from '../storage.js';
 import { invalidateFaces } from '../faces.js';
 import { normalizeWatermark, watermarkPreview, clearWatermarkCache } from '../watermark.js';
 import { queueStatus } from '../jobs.js';
@@ -130,6 +130,28 @@ r.put('/events/:id/status', async (req, res) => {
   await db.query(`update events set status = $2, published_at = case when $2 = 'published' then coalesce(published_at, now()) else published_at end where id = $1`, [Number(req.params.id), status]);
   invalidateFaces();
   res.json({ ok: true });
+});
+
+// Exclusao definitiva (para eventos de teste): evento, fotos, arquivos e os pedidos que so tinham fotos dele.
+r.post('/events/:id/purge', async (req, res) => {
+  const ev = await db.one('select id, title from events where id = $1', [Number(req.params.id)]);
+  if (!ev) fail(404, 'Evento não encontrado.');
+  if (String(req.body?.confirm || '').trim() !== ev.title.trim()) fail(400, 'Digite o nome exato do evento para confirmar.');
+  const photos = await db.many('select id, original_path, key from photos where event_id = $1', [ev.id]);
+  const removed = await db.tx(async (t) => {
+    const orderIds = (await t.query('select distinct order_id from order_items where event_id = $1', [ev.id])).rows.map((x) => x.order_id);
+    await t.query('delete from order_items where event_id = $1', [ev.id]);
+    const del = await t.query(
+      'delete from orders o where o.id = any($1::int[]) and not exists (select 1 from order_items oi where oi.order_id = o.id) returning o.id',
+      [orderIds],
+    );
+    await t.query('delete from drive_sources where event_id = $1', [ev.id]);
+    await t.query('delete from events where id = $1', [ev.id]);
+    return del.rows.length;
+  });
+  for (const p of photos) await removePhotoFiles(ev.id, p.id, p.original_path, p.key);
+  invalidateFaces();
+  res.json({ ok: true, photos: photos.length, orders: removed });
 });
 
 r.get('/orders', async (req, res) => {

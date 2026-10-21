@@ -254,20 +254,25 @@ function describeGroup(source, g) {
 async function eventForGroup(source, g) {
   if (g.eventId) {
     const ev = await db.one('select id, event_date from events where id = $1', [g.eventId]);
-    if (ev) return ev;
+    if (ev) return { ...ev, tag: g.folder.name };
   }
+  const folderPath = [...g.path, g.folder.name].join(' / ');
   const found = await db.one('select id, event_date from events where drive_folder_id = $1', [g.folder.id]);
-  if (found) return found;
+  if (found) {
+    await db.query('update events set drive_folder_path = $2 where id = $1 and drive_folder_path is distinct from $2', [found.id, folderPath]);
+    await db.query('update photos set tag = $2 where event_id = $1 and tag is null and drive_file_id is not null', [found.id, g.folder.name]);
+    return { ...found, tag: g.folder.name };
+  }
   const parsed = describeGroup(source, g);
   const date = parsed.date || fileDate(g.files) || (g.folder.createdTime || '').slice(0, 10) || new Date().toISOString().slice(0, 10);
   const slug = await uniqueSlug('events', `${parsed.title} ${date.slice(0, 4)}`);
   return db.one(
     `insert into events (slug, title, category_id, photographer_id, event_date, city, price_cents, pack_price_cents, status,
-       hide_gallery, watermark_mode, drive_folder_id, drive_source_id, auto_publish)
-     values ($1, $2, $3, $4, $5, $6, $7, $8, 'draft', $9, $10, $11, $12, $13) returning id, event_date`,
+       hide_gallery, watermark_mode, drive_folder_id, drive_source_id, auto_publish, kind, drive_folder_path)
+     values ($1, $2, $3, $4, $5, $6, $7, $8, 'draft', $9, $10, $11, $12, $13, 'pool', $14) returning id, event_date`,
     [slug, parsed.title, source.category_id, source.photographer_id, date, parsed.city, source.price_cents, source.pack_price_cents,
-      source.hide_gallery, source.watermark_mode, g.folder.id, source.id, source.auto_publish],
-  );
+      source.hide_gallery, source.watermark_mode, g.folder.id, source.id, source.auto_publish, folderPath],
+  ).then((ev) => ({ ...ev, tag: g.folder.name }));
 }
 
 async function skip(source, file, reason) {
@@ -304,8 +309,8 @@ async function importFile(source, event, file) {
       return 'skip';
     }
     const photo = await db.one(
-      `insert into photos (event_id, photographer_id, original_name, original_path, sort_key, drive_file_id) values ($1, $2, $3, '', $4, $5) returning id`,
-      [event.id, source.photographer_id, file.name, file.name, file.id],
+      `insert into photos (event_id, photographer_id, original_name, original_path, sort_key, drive_file_id, tag) values ($1, $2, $3, '', $4, $5, $6) returning id`,
+      [event.id, source.photographer_id, file.name, file.name, file.id, event.tag || null],
     );
     try {
       if (source.keep_in_drive) {

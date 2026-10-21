@@ -35,7 +35,7 @@ export default function Home() {
             <span className="eyebrow">{site?.tagline || 'Eternizando gerações!'} · desde {site?.since || 2003}</span>
             <h1>Sua história, nossas fotos, <b>grandes momentos.</b></h1>
             <p className="lead">
-              Festas, formaturas, corridas e eventos do Extremo Sul Catarinense. Tire uma selfie e encontre todas as fotos em que você aparece.
+              Festas, formaturas, jantares e eventos esportivos do Extremo Sul Catarinense. Tire uma selfie e encontre todas as fotos em que você aparece.
             </p>
             <div className="row">
               <Link to="/buscar" className="btn btn-accent btn-lg"><ScanFace size={20} /> Achar minhas fotos</Link>
@@ -64,13 +64,16 @@ export default function Home() {
       {years.length > 0 && (
         <section className="section-sm">
           <div className="container stack">
-            <div className="row between">
-              <h3>Todas as fotos do ano, num só lugar</h3>
-              <span className="small muted hide-sm">Uma selfie busca você em todos os eventos do ano</span>
+            <div className="stack" style={{ gap: 4 }}>
+              <h2>Localize sua foto pelo ano</h2>
+              <span className="muted">Escolha o ano e tire uma selfie: procuramos você em todas as fotos daquele ano, de todos os eventos.</span>
             </div>
-            <div className="chips">
+            <div className="year-grid">
               {years.map((y) => (
-                <Link key={y.year} to={`/ano/${y.year}`} className="chip">{y.year} <em>{y.events}</em></Link>
+                <Link key={y.year} to={`/ano/${y.year}`} className="year-card">
+                  <b>{y.year}</b>
+                  <span>{compact(y.photos)} fotos</span>
+                </Link>
               ))}
             </div>
           </div>

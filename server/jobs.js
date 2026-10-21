@@ -5,10 +5,12 @@ import { withOriginal, isDriveOriginal, copyToServer } from './originals.js';
 import { encodeDescriptor, invalidateFaces } from './faces.js';
 import { syncDueSources } from './drive.js';
 import { pollPendingInfinitePay, checkInfinitePay } from './infinitepay.js';
+import { matchBatch, blurBoxesFor } from './matching.js';
 
 // Fila em segundo plano guardada no proprio banco (sobrevive a reinicios):
 //   photos.needs_render -> refazer vitrine/miniatura (marca d'agua mudou, foto importada)
 //   photos.needs_faces  -> indexar rostos no servidor (importacao do Drive ou upload sem rostos)
+//   rostos novos x rostos cadastrados pelos clientes -> "Encontradas para voce" e borrao (matching.js)
 // Depois publica os eventos importados do Drive que estavam esperando ficar prontos.
 
 async function renderBatch() {
@@ -17,7 +19,8 @@ async function renderBatch() {
   );
   for (const p of rows) {
     try {
-      const key = await withOriginal(p.original_path, (srcFile) => renderPhoto({ eventId: p.event_id, photoId: p.id, oldKey: p.key, srcFile }));
+      const blurBoxes = await blurBoxesFor(p.id);
+      const key = await withOriginal(p.original_path, (srcFile) => renderPhoto({ eventId: p.event_id, photoId: p.id, oldKey: p.key, srcFile, blurBoxes }));
       await db.query('update photos set key = $2, needs_render = false where id = $1', [p.id, key]);
     } catch (err) {
       console.error('[vitrine] foto', p.id, err.message);
@@ -113,6 +116,7 @@ async function tick() {
     await expirePending();
     const rendered = await renderBatch();
     const indexed = await facesBatch();
+    await matchBatch();
     await autoPublish();
     // Fila vazia: hora de procurar fotos novas no Drive.
     if (!rendered && !indexed) await syncDueSources();

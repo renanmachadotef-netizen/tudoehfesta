@@ -11,6 +11,7 @@ import { startJobs } from './jobs.js';
 import publicRoutes from './routes/public.js';
 import authRoutes from './routes/auth.js';
 import orderRoutes from './routes/orders.js';
+import meRoutes from './routes/me.js';
 import studioRoutes from './routes/studio.js';
 import adminRoutes from './routes/admin.js';
 
@@ -46,6 +47,7 @@ app.use('/api', loadUser);
 app.use('/api', publicRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api', orderRoutes);
+app.use('/api', meRoutes);
 app.use('/api/studio', studioRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api', (_req, res) => res.status(404).json({ error: 'Rota não encontrada.' }));
