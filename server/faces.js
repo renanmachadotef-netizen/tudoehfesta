@@ -29,14 +29,16 @@ async function loadScope(scope) {
   const hit = cache.get(scope);
   if (hit && hit.version === version) return hit;
   // Rostos borrados a pedido do proprio cliente nunca aparecem na busca de outras pessoas.
-  let where = 'f.blurred_user_id is null and f.event_id in (select id from events where status = \'published\')';
+  // Fotos ocultas pelo fotografo tambem ficam de fora.
+  const visible = 'f.blurred_user_id is null and not exists (select 1 from photos hp where hp.id = f.photo_id and hp.hidden)';
+  let where = `${visible} and f.event_id in (select id from events where status = 'published')`;
   const params = [];
   if (scope.startsWith('year:')) {
     params.push(Number(scope.slice(5)));
     where += ` and f.year = $${params.length}`;
   } else if (scope.startsWith('event:')) {
     params.push(Number(scope.slice(6)));
-    where = `f.blurred_user_id is null and f.event_id = $${params.length}`;
+    where = `${visible} and f.event_id = $${params.length}`;
   }
   const rows = await db.many(`select f.photo_id, f.event_id, f.descriptor from faces f where ${where}`, params);
   const data = new Float32Array(rows.length * DIM);

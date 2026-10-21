@@ -37,7 +37,7 @@ export async function priceCart(photoIds, couponCode) {
        from photos p
        join events e on e.id = p.event_id and e.status = 'published'
        left join photographers ph on ph.user_id = e.photographer_id
-      where p.id = any($1::int[])
+      where p.id = any($1::int[]) and not p.hidden
       order by p.event_id, p.id`,
     [ids],
   );

@@ -279,3 +279,6 @@ create index if not exists faces_blurred_idx on faces (photo_id) where blurred_u
 alter table photos add column if not exists tag text;
 alter table events add column if not exists drive_folder_path text;
 create index if not exists photos_tag_idx on photos (tag) where tag is not null;
+
+-- v9: foto oculta pelo fotografo/admin (sai de tudo que e publico, mas continua guardada e baixavel por quem ja comprou)
+alter table photos add column if not exists hidden boolean not null default false;

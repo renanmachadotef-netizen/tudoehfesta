@@ -1,24 +1,36 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Archive, FolderOpen, Images, ScanFace, ShoppingBag, ChevronDown, ChevronUp, Camera, Trash2 } from 'lucide-react';
+import { Archive, FolderOpen, Images, ScanFace, ShoppingBag, ChevronDown, ChevronUp, Camera, Trash2, EyeOff, Eye } from 'lucide-react';
 import { api } from '../../lib/api.js';
 import { useApi, useSite } from '../../lib/site.jsx';
 import { money, dateBR, plural, compact } from '../../lib/format.js';
 import { Loading, ErrorBox, Empty } from '../../components/Layout.jsx';
 import { PageHead } from './Studio.jsx';
+import DisplaySelect from '../../components/DisplaySelect.jsx';
 
 // Fotos de um grupo, em miniatura (so para o dono/admin: o publico so ve pela selfie).
 function GroupPhotos({ id }) {
-  const { data, loading } = useApi(`/studio/events/${id}/photos`);
+  const { toast } = useSite();
+  const { data, loading, setData } = useApi(`/studio/events/${id}/photos`);
+  const toggle = async (e, p) => {
+    e.preventDefault();
+    try {
+      await api('/studio/photos/hidden', { method: 'PUT', body: { ids: [p.id], hidden: !p.hidden } });
+      setData((d) => ({ ...d, photos: d.photos.map((x) => (x.id === p.id ? { ...x, hidden: !p.hidden } : x)) }));
+      toast(p.hidden ? 'Foto visível de novo' : 'Foto oculta do site');
+    } catch (err) { toast(err.message); }
+  };
   if (loading) return <span className="small muted">Carregando fotos…</span>;
   const photos = data?.photos || [];
   if (!photos.length) return <span className="small muted">Nenhuma foto pronta ainda.</span>;
   return (
     <div className="acervo-thumbs">
       {photos.map((p) => (
-        <a key={p.id} href={p.preview} target="_blank" rel="noreferrer" title={`${p.name || ''}${p.faces ? ` · ${p.faces} rosto(s)` : ''}${p.sold ? ` · vendida ${p.sold}x` : ''}`}>
+        <a key={p.id} className={p.hidden ? 'is-hidden' : ''} href={p.preview} target="_blank" rel="noreferrer" title={`${p.name || ''}${p.faces ? ` · ${p.faces} rosto(s)` : ''}${p.sold ? ` · vendida ${p.sold}x` : ''}`}>
           <img src={p.thumb} alt="" loading="lazy" />
           {p.sold > 0 && <span className="acervo-sold">vendida</span>}
+          {p.hidden && <span className="acervo-hidden">oculta</span>}
+          <button className="acervo-eye" title={p.hidden ? 'Mostrar no site' : 'Ocultar do site'} onClick={(e) => toggle(e, p)}>{p.hidden ? <Eye size={13} /> : <EyeOff size={13} />}</button>
         </a>
       ))}
     </div>
@@ -58,14 +70,15 @@ function Group({ g, admin, onPurged }) {
           <span className="small">
             {plural(g.photo_count, 'foto', 'fotos')} · {plural(g.faces, 'rosto', 'rostos')}
             {g.pending > 0 && <span className="muted"> · {g.pending} processando</span>}
+            {g.hidden_count > 0 && <span className="muted"> · {g.hidden_count} oculta(s)</span>}
             {' · '}{g.sold ? <b>{g.sold} vendidas · {money(g.sold_cents)}</b> : <span className="muted">sem vendas</span>}
           </span>
         </div>
       </div>
       <div className="row" style={{ gap: 8 }}>
         <button className="btn btn-sm btn-soft" onClick={() => setOpen(!open)}>{open ? <ChevronUp size={14} /> : <ChevronDown size={14} />} {open ? 'Esconder fotos' : 'Ver fotos'}</button>
-        {pool ? <Link to="/painel/eventos/novo" className="btn btn-sm btn-ghost" title="Crie o evento e use “Puxar do acervo” para trazer estas fotos">Criar evento com estas fotos</Link>
-          : <Link to={`/painel/eventos/${g.id}`} className="btn btn-sm btn-ghost">Editar evento</Link>}
+        <DisplaySelect event={g} small onChanged={onPurged} />
+        <Link to={`/painel/eventos/${g.id}`} className="btn btn-sm btn-ghost">Editar</Link>
         {!pool && g.status === 'published' && <Link to={`/evento/${g.slug}`} className="btn btn-sm btn-ghost">Ver no site</Link>}
         {admin && <button className="btn btn-sm btn-ghost" style={{ color: 'var(--bad)', marginLeft: 'auto' }} onClick={purge}><Trash2 size={14} /> Excluir do site</button>}
       </div>

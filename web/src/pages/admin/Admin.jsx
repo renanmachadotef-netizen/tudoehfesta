@@ -9,6 +9,7 @@ import { Bars, PageHead } from '../studio/Studio.jsx';
 import WatermarkEditor from '../../components/WatermarkEditor.jsx';
 import { StatusBadge } from '../Account.jsx';
 import { EVENT_STATUS } from '../studio/EventsList.jsx';
+import DisplaySelect from '../../components/DisplaySelect.jsx';
 import Live from './Live.jsx';
 
 function Dashboard() {
@@ -203,11 +204,12 @@ function Events() {
     <div className="stack">
       <PageHead title="Todos os eventos"><Link to="/painel/acervo" className="btn btn-sm btn-ghost">Ver acervo por ano</Link><Link to="/painel/eventos/novo" className="btn btn-sm btn-accent">Novo evento (meu)</Link></PageHead>
       <div className="table-wrap"><table className="table">
-        <thead><tr><th>Evento</th><th>Fotógrafo</th><th>Status</th><th className="num">Fotos</th><th className="num">Rostos</th><th className="num">Visitas</th><th className="num">Vendido</th><th></th></tr></thead>
+        <thead><tr><th>Evento</th><th>Fotógrafo</th><th>Exibição no site</th><th>Status</th><th className="num">Fotos</th><th className="num">Rostos</th><th className="num">Visitas</th><th className="num">Vendido</th><th></th></tr></thead>
         <tbody>{data.events.map((e) => (
           <tr key={e.id}>
             <td><Link to={`/painel/eventos/${e.id}`} style={{ fontWeight: 600 }}>{e.title}</Link><div className="tiny muted">{dateBR(e.event_date)} · {e.kind === 'pool' ? 'acervo do ano' : e.category_name || 'sem categoria'}</div></td>
             <td className="small">{e.photographer_name}</td>
+            <td><DisplaySelect event={e} small onChanged={reload} /></td>
             <td><select className="select" style={{ height: 32, width: 130, fontSize: 13 }} value={e.status} onChange={(ev) => setStatus(e, ev.target.value)}>
               {Object.entries(EVENT_STATUS).map(([k, [label]]) => <option key={k} value={k}>{label}</option>)}
             </select></td>

@@ -220,13 +220,13 @@ r.put('/events/:id/cover', async (req, res) => {
 r.get('/events/:id/photos', async (req, res) => {
   const ev = await ownEvent(req, req.params.id);
   const rows = await db.many(
-    `select p.id, p.event_id, p.width, p.height, p.key, p.faces_count, p.original_name, p.needs_faces, p.needs_render,
+    `select p.id, p.event_id, p.width, p.height, p.key, p.faces_count, p.original_name, p.needs_faces, p.needs_render, p.hidden,
             (select count(*) from order_items oi join orders o on o.id = oi.order_id and o.status = 'paid' where oi.photo_id = p.id)::int as sold
        from photos p where p.event_id = $1 and p.key is not null order by p.sort_key nulls last, p.id`,
     [ev.id],
   );
   res.json({
-    photos: rows.map((p) => ({ ...photoOut(p), faces: p.faces_count, name: p.original_name, sold: p.sold, pending: p.needs_faces || p.needs_render })),
+    photos: rows.map((p) => ({ ...photoOut(p), faces: p.faces_count, name: p.original_name, sold: p.sold, pending: p.needs_faces || p.needs_render, hidden: p.hidden })),
   });
 });
 
@@ -292,6 +292,42 @@ r.post('/events/:id/reindex', async (req, res) => {
   const ev = await ownEvent(req, req.params.id);
   const r2 = await db.query('update photos set needs_faces = true where event_id = $1 and faces_count = 0', [ev.id]);
   res.json({ ok: true, queued: r2.rowCount ?? r2.affectedRows ?? 0 });
+});
+
+// Ocultar/mostrar fotos (uma ou varias): a foto oculta sai do site, da busca por selfie e do carrinho,
+// mas continua guardada (e quem ja comprou continua baixando).
+r.put('/photos/hidden', async (req, res) => {
+  const ids = [...new Set((req.body?.ids || []).map(Number).filter(Boolean))].slice(0, 2000);
+  if (!ids.length) fail(400, 'Nenhuma foto selecionada.');
+  const hidden = !!req.body?.hidden;
+  const rows = await db.many(
+    `update photos p set hidden = $2 from events e
+      where e.id = p.event_id and p.id = any($1::int[]) and ($3::boolean or e.photographer_id = $4) returning p.id`,
+    [ids, hidden, req.user.role === 'admin', req.user.id],
+  );
+  invalidateFaces();
+  res.json({ ok: true, changed: rows.length });
+});
+
+// Como o grupo aparece no site: so no acervo (selfie), evento so por selfie ou evento com galeria aberta.
+r.put('/events/:id/display', async (req, res) => {
+  const ev = await ownEvent(req, req.params.id);
+  const display = req.body?.display;
+  if (!['pool', 'selfie', 'gallery'].includes(display)) fail(400, 'Opção inválida.');
+  const categoryId = req.body?.category_id === undefined ? ev.category_id : Number(req.body.category_id) || null;
+  if (display !== 'pool' && ev.kind === 'pool' && ev.drive_folder_id) {
+    const other = await db.one(`select title from events where drive_folder_id = $1 and id <> $2 and kind = 'event'`, [ev.drive_folder_id, ev.id]);
+    if (other) fail(409, `As fotos desta pasta já estão no evento "${other.title}".`);
+  }
+  await db.query(
+    `update events set kind = $2, hide_gallery = $3, category_id = $4,
+       status = case when status = 'draft' and $2 = 'event' then 'published' else status end,
+       published_at = coalesce(published_at, now())
+     where id = $1`,
+    [ev.id, display === 'pool' ? 'pool' : 'event', display !== 'gallery', categoryId],
+  );
+  invalidateFaces();
+  res.json({ ok: true });
 });
 
 r.delete('/photos/:id', async (req, res) => {
@@ -537,6 +573,7 @@ async function mergeInto(other, ev) {
 // Visao do acervo por ano: o que esta no site, de onde veio e quanto vendeu (controle do fotografo/admin).
 const GROUP_STATS = `
   (select count(*) from photos p where p.event_id = e.id and (p.needs_faces or p.needs_render or p.key is null))::int as pending,
+  (select count(*) from photos p where p.event_id = e.id and p.hidden)::int as hidden_count,
   (select coalesce(sum(p.faces_count), 0) from photos p where p.event_id = e.id)::int as faces,
   (select count(*) from order_items oi join orders o on o.id = oi.order_id and o.status = 'paid' where oi.event_id = e.id)::int as sold,
   (select coalesce(sum(oi.price_cents), 0) from order_items oi join orders o on o.id = oi.order_id and o.status = 'paid' where oi.event_id = e.id)::int as sold_cents`;
@@ -544,9 +581,9 @@ r.get('/acervo', async (req, res) => {
   const scope = [req.user.role === 'admin', req.user.id];
   const years = await db.many(
     `select y as year, count(*) filter (where kind = 'pool')::int as groups, count(*) filter (where kind = 'event')::int as events,
-            sum(photo_count)::int as photos, sum(faces)::int as faces, sum(pending)::int as pending, sum(sold)::int as sold, sum(sold_cents)::int as sold_cents
+            sum(photo_count)::int as photos, sum(faces)::int as faces, sum(pending)::int as pending, sum(sold)::int as sold, sum(sold_cents)::int as sold_cents, sum(hidden_count)::int as hidden
        from (select e.kind, extract(year from e.event_date)::int as y,
-                    (select count(*) from photos p where p.event_id = e.id and p.key is not null)::int as photo_count, ${GROUP_STATS}
+                    (select count(*) from photos p where p.event_id = e.id and p.key is not null and not p.hidden)::int as photo_count, ${GROUP_STATS}
                from events e where ($1::boolean or e.photographer_id = $2)) x
       group by y order by y desc`,
     scope,

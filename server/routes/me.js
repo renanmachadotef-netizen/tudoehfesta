@@ -59,7 +59,7 @@ r.get('/my/matches', async (req, res) => {
     `select p.id, p.event_id, p.width, p.height, p.key, m.seen, m.created_at, e.title as event_title, e.slug as event_slug,
             e.event_date, e.price_cents, e.kind as event_kind
        from user_matches m
-       join photos p on p.id = m.photo_id and p.key is not null
+       join photos p on p.id = m.photo_id and p.key is not null and not p.hidden
        join events e on e.id = p.event_id and e.status = 'published'
       where m.user_id = $1
         and not exists (select 1 from order_items oi join orders o on o.id = oi.order_id and o.status = 'paid'

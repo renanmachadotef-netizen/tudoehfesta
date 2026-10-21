@@ -397,3 +397,10 @@ details.faq p { margin-top: 10px; color: var(--ink-2); }
 .live-thumbs img { width: 100%; height: 100%; object-fit: cover; display: block; }
 @media (max-width: 980px) { .live-grid { grid-template-columns: 1fr; } }
 @media (max-width: 560px) { .live-feed li { grid-template-columns: 58px 1fr; } .live-feed li .lf-text { grid-column: 1 / -1; } .live-thumbs { grid-template-columns: repeat(4, 1fr); } }
+
+/* Fotos ocultas */
+.studio-photo.is-hidden img, .acervo-thumbs a.is-hidden img { opacity: .35; filter: grayscale(1); }
+.acervo-hidden { position: absolute; right: 4px; bottom: 4px; font-size: 10.5px; font-weight: 600; padding: 1px 6px; border-radius: 99px; background: var(--bad); color: #fff; }
+.acervo-eye { position: absolute; top: 4px; right: 4px; width: 26px; height: 26px; border-radius: 99px; border: 0; background: rgba(255,255,255,.92); display: none; place-items: center; cursor: pointer; }
+.acervo-thumbs a:hover .acervo-eye, .acervo-thumbs a.is-hidden .acervo-eye { display: grid; }
+@media (hover: none) { .studio-photo .acts, .acervo-eye { display: flex; } .acervo-eye { display: grid; } }

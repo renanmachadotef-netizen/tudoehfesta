@@ -31,8 +31,8 @@ export default function EventDrive({ eventId, onChange }) {
   if (!data) return null;
   if (data.kind === 'pool') {
     return (
-      <div className="alert">Este é um grupo do <b>acervo do ano</b> (pasta {data.folder_path}). Ele aparece na busca e na galeria do ano. Para virar um evento,
-        crie um <Link to="/painel/eventos/novo" style={{ textDecoration: 'underline' }}>novo evento</Link> e puxe estas fotos pelo acervo.</div>
+      <div className="alert">Fotos da pasta <b>{data.folder_path}</b>, no <b>acervo do ano</b>: o público só as encontra pela selfie. Para ter página de evento,
+        mude a <b>Exibição no site</b> acima para “Evento” (ou crie um <Link to="/painel/eventos/novo" style={{ textDecoration: 'underline' }}>novo evento</Link> e puxe estas fotos pelo acervo).</div>
     );
   }
 

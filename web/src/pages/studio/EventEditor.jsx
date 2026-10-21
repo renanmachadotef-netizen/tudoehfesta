@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { Upload, Trash2, Star, ScanFace, Plus, X, ExternalLink, Copy, Download, MessageCircle, ArrowLeft, EyeOff, HardDrive, RefreshCw } from 'lucide-react';
+import { Upload, Trash2, Star, ScanFace, Plus, X, ExternalLink, Copy, Download, MessageCircle, ArrowLeft, EyeOff, Eye, HardDrive, RefreshCw } from 'lucide-react';
 import { api, uploadWithProgress } from '../../lib/api.js';
 import { useSite } from '../../lib/site.jsx';
 import { centsToInput, money } from '../../lib/format.js';
@@ -8,6 +8,7 @@ import { detectFaces, fileToCanvas, loadFaceApi } from '../../lib/faces.js';
 import { Loading, ErrorBox } from '../../components/Layout.jsx';
 import { EVENT_STATUS } from './EventsList.jsx';
 import EventDrive from './EventDrive.jsx';
+import DisplaySelect from '../../components/DisplaySelect.jsx';
 
 const blank = { title: '', event_date: new Date().toISOString().slice(0, 10), category_id: '', city: '', venue: '', description: '', price: '15,00', pack_price: '', discount_tiers: [{ min: 5, pct: 20 }], status: 'draft', hide_gallery: false, watermark_mode: 'site' };
 
@@ -245,6 +246,15 @@ function PhotosManager({ event, photos, setPhotos, onCover, onQueued }) {
       toast(err.message);
     }
   };
+  const toggleHidden = async (p) => {
+    try {
+      await api('/studio/photos/hidden', { method: 'PUT', body: { ids: [p.id], hidden: !p.hidden } });
+      setPhotos((list) => list.map((x) => (x.id === p.id ? { ...x, hidden: !p.hidden } : x)));
+      toast(p.hidden ? 'Foto visível de novo' : 'Foto oculta: não aparece mais no site');
+    } catch (err) {
+      toast(err.message);
+    }
+  };
   const cover = async (p) => {
     await api(`/studio/events/${event.id}/cover`, { method: 'PUT', body: { photoId: p.id } });
     onCover(p.id);
@@ -252,18 +262,20 @@ function PhotosManager({ event, photos, setPhotos, onCover, onQueued }) {
   };
   if (!photos.length) return null;
   const noFaces = photos.filter((p) => !p.faces).length;
+  const hiddenCount = photos.filter((p) => p.hidden).length;
   return (
     <div className="card stack">
-      <div className="row between"><h3>Fotos ({photos.length})</h3>
+      <div className="row between"><h3>Fotos ({photos.length}){hiddenCount > 0 && <span className="small muted" style={{ fontWeight: 500 }}> · {hiddenCount} oculta(s)</span>}</h3>
         <span className="row small muted">{noFaces} sem rosto detectado
           {noFaces > 0 && <button className="btn btn-sm btn-soft" onClick={async () => { const d = await api(`/studio/events/${event.id}/reindex`, { method: 'POST' }); toast(`${d.queued} foto(s) na fila do servidor`); onQueued?.(d.queued); }}><RefreshCw size={13} /> Procurar de novo</button>}
         </span>
       </div>
       <div className="studio-photos">
         {photos.map((p) => (
-          <div key={p.id} className="studio-photo">
+          <div key={p.id} className={`studio-photo${p.hidden ? ' is-hidden' : ''}`}>
             <img src={p.thumb} alt="" loading="lazy" />
             <div className="acts">
+              <button title={p.hidden ? 'Mostrar no site' : 'Ocultar do site'} onClick={() => toggleHidden(p)}>{p.hidden ? <Eye size={14} /> : <EyeOff size={14} />}</button>
               <button title="Usar como capa" onClick={() => cover(p)}><Star size={14} fill={event.cover_photo_id === p.id ? '#ffb21a' : 'none'} /></button>
               {!p.sold && <button title="Excluir" onClick={() => del(p)}><Trash2 size={14} /></button>}
             </div>
@@ -271,6 +283,7 @@ function PhotosManager({ event, photos, setPhotos, onCover, onQueued }) {
               <span className="badge" style={{ background: 'rgba(255,255,255,.9)' }}><ScanFace size={11} /> {p.pending ? '…' : p.faces || 0}</span>
               {p.sold > 0 && <span className="badge badge-ok">{p.sold} venda(s)</span>}
               {event.cover_photo_id === p.id && <span className="badge badge-accent">Capa</span>}
+              {p.hidden && <span className="badge badge-bad">Oculta</span>}
             </div>
           </div>
         ))}
@@ -352,6 +365,15 @@ export default function EventEditor() {
           Processando no servidor: {queue.render > 0 && `${queue.render} vitrine(s) para refazer`}{queue.render > 0 && queue.faces > 0 && ' · '}{queue.faces > 0 && `${queue.faces} foto(s) procurando rostos`}
         </div>
       )}
+      {event.id && (
+        <div className="card row between" style={{ gap: 12 }}>
+          <div className="stack" style={{ gap: 2 }}>
+            <b>Exibição no site</b>
+            <span className="tiny muted">{event.kind === 'pool' ? 'Hoje só aparece pela busca por selfie (acervo do ano), sem página de evento.' : event.hide_gallery ? 'Tem página de evento; as fotos só aparecem pela selfie.' : 'Tem página de evento com todas as fotos à mostra.'}</span>
+          </div>
+          <DisplaySelect event={event} onChanged={() => api(`/studio/events/${event.id}`).then((x) => { setEvent(x.event); setQueue(x.queue); })} />
+        </div>
+      )}
       {event.id && <EventDrive eventId={event.id} onChange={() => {
         api(`/studio/events/${event.id}`).then((x) => { setEvent(x.event); setQueue(x.queue); }).catch(() => {});
         api(`/studio/events/${event.id}/photos`).then((x) => setPhotos(x.photos)).catch(() => {});
@@ -363,7 +385,7 @@ export default function EventEditor() {
       }} />}
 
       <EventForm
-        key={event.id || 'novo'}
+        key={event.id ? `${event.id}-${event.kind}-${event.hide_gallery}-${event.category_id}` : 'novo'}
         initial={initial}
         onSaved={async (d) => {
           await refresh();

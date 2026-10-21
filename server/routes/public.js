@@ -13,7 +13,7 @@ export const EVENT_CARD = `
   e.id, e.slug, e.title, e.event_date, e.city, e.venue, e.status, e.price_cents, e.pack_price_cents,
   e.discount_tiers, e.category_id, c.name as category_name, c.slug as category_slug, e.hide_gallery, e.watermark_mode, e.kind,
   ph.display_name as photographer_name, ph.slug as photographer_slug, ph.avatar_path as photographer_avatar,
-  (select count(*) from photos p where p.event_id = e.id and p.key is not null)::int as photo_count,
+  (select count(*) from photos p where p.event_id = e.id and p.key is not null and not p.hidden)::int as photo_count,
   cv.id as cover_id, cv.key as cover_key`;
 // Capa: a escolhida pelo fotografo ou a primeira foto. Em evento com galeria oculta so a escolhida
 // (uma foto qualquer poderia expor quem nao quer aparecer).
@@ -23,8 +23,8 @@ export const EVENT_JOINS = `
   left join photographers ph on ph.user_id = e.photographer_id
   left join lateral (
     select p.id, p.key from photos p
-     where p.key is not null and p.id = coalesce(e.cover_photo_id,
-       case when e.hide_gallery then null else (select min(p2.id) from photos p2 where p2.event_id = e.id and p2.key is not null) end)
+     where p.key is not null and not p.hidden and p.id = coalesce(e.cover_photo_id,
+       case when e.hide_gallery then null else (select min(p2.id) from photos p2 where p2.event_id = e.id and p2.key is not null and not p2.hidden) end)
   ) cv on true`;
 
 export function eventCard(row) {
@@ -56,12 +56,12 @@ r.get('/site', async (req, res) => {
     db.many(
       `select extract(year from e.event_date)::int as year, count(distinct e.id) filter (where e.kind = 'event')::int as events,
               count(p.id)::int as photos
-         from events e left join photos p on p.event_id = e.id and p.key is not null
+         from events e left join photos p on p.event_id = e.id and p.key is not null and not p.hidden
         where e.status = 'published' group by 1 having count(p.id) > 0 or count(distinct e.id) filter (where e.kind = 'event') > 0
         order by 1 desc`,
     ),
     db.one(
-      `select (select count(*) from photos p join events e on e.id = p.event_id and e.status = 'published')::int as photos,
+      `select (select count(*) from photos p join events e on e.id = p.event_id and e.status = 'published' where not p.hidden)::int as photos,
               (select count(*) from events where status = 'published' and kind = 'event')::int as events,
               (select count(*) from photographers where status = 'approved')::int as photographers`,
     ),
@@ -129,7 +129,7 @@ r.get('/events/:slug/photos', async (req, res) => {
   const limit = Math.min(Number(req.query.limit) || 120, 300);
   const offset = Math.max(Number(req.query.offset) || 0, 0);
   const rows = await db.many(
-    `select id, event_id, width, height, key from photos where event_id = $1 and key is not null order by sort_key nulls last, id limit $2 offset $3`,
+    `select id, event_id, width, height, key from photos where event_id = $1 and key is not null and not hidden order by sort_key nulls last, id limit $2 offset $3`,
     [ev.id, limit + 1, offset],
   );
   res.json({ photos: rows.slice(0, limit).map(photoOut), more: rows.length > limit });
@@ -141,7 +141,7 @@ r.get('/photos', async (req, res) => {
   const rows = await db.many(
     `select p.id, p.event_id, p.width, p.height, p.key, e.title as event_title, e.slug as event_slug, e.price_cents
        from photos p join events e on e.id = p.event_id and e.status = 'published' and not e.hide_gallery and e.kind = 'event'
-      where p.id = any($1::int[]) and p.key is not null`,
+      where p.id = any($1::int[]) and p.key is not null and not p.hidden`,
     [ids],
   );
   res.json({ photos: rows.map((p) => ({ ...photoOut(p), event_title: p.event_title, event_slug: p.event_slug, price_cents: p.price_cents })) });
@@ -167,7 +167,7 @@ r.post('/faces/search', rateLimit('faces', 40, 60_000), async (req, res) => {
   const ids = hits.map((h) => h.photoId);
   const rows = await db.many(
     `select p.id, p.event_id, p.width, p.height, p.key from photos p join events e on e.id = p.event_id and e.status = 'published'
-      where p.id = any($1::int[]) and p.key is not null`,
+      where p.id = any($1::int[]) and p.key is not null and not p.hidden`,
     [ids],
   );
   const byId = new Map(rows.map((p) => [p.id, p]));
