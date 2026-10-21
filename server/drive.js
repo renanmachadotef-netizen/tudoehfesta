@@ -347,6 +347,28 @@ async function importFile(source, event, file) {
   }
 }
 
+// Previa do que a sincronizacao enxerga, sem importar nada: o que esta na raiz e quais pastas viram eventos.
+export async function previewSource(source) {
+  const top = await listChildren(source.folder_id);
+  const groups = await collectGroups(source);
+  const imported = new Set((await db.many('select drive_file_id from photos where drive_file_id is not null')).map((r) => r.drive_file_id));
+  return {
+    root: top.map((f) => ({ name: f.name, type: isFolder(f) ? 'pasta' : f.mimeType })).slice(0, 100),
+    events: groups.map((g) => {
+      const d = describeGroup(source, g);
+      const supported = g.files.filter((f) => IMAGE_TYPES.has(f.mimeType));
+      return {
+        folder: [...g.path, g.folder.name].join(' / '),
+        title: d.title,
+        date: d.date,
+        photos: supported.length,
+        unsupported: g.files.length - supported.length,
+        imported: g.files.filter((f) => imported.has(f.id)).length,
+      };
+    }),
+  };
+}
+
 export async function syncSource(sourceId) {
   const source = await db.one('select * from drive_sources where id = $1', [sourceId]);
   if (!source) return;

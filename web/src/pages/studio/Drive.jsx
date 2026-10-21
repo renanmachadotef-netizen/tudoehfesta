@@ -68,6 +68,8 @@ function SourceCard({ s, reload }) {
   const { toast } = useSite();
   const [edit, setEdit] = useState(false);
   const [skips, setSkips] = useState(null);
+  const [preview, setPreview] = useState(null);
+  const [loadingPreview, setLoadingPreview] = useState(false);
   const [dot, label] = statusOf(s);
   const act = async (fn, msg) => {
     try {
@@ -100,11 +102,32 @@ function SourceCard({ s, reload }) {
       {s.last_status === 'erro' && <div className="alert alert-bad row" style={{ gap: 8 }}><AlertTriangle size={16} /> {s.last_error}</div>}
       <div className="row">
         <button className="btn btn-sm btn-accent" onClick={() => act(() => api(`/studio/drive/${s.id}/sync`, { method: 'POST' }), 'Sincronização na fila')}><RefreshCw size={14} /> Sincronizar agora</button>
+        <button className="btn btn-sm btn-soft" disabled={loadingPreview} onClick={async () => {
+          if (preview) return setPreview(null);
+          setLoadingPreview(true);
+          try { setPreview(await api(`/studio/drive/${s.id}/preview`)); } catch (err) { toast(err.message); } finally { setLoadingPreview(false); }
+        }}>{loadingPreview ? 'Lendo o Drive…' : preview ? 'Fechar prévia' : 'Prévia'}</button>
         <button className="btn btn-sm btn-soft" onClick={() => setEdit((v) => !v)}>Padrões</button>
         {s.skipped > 0 && <button className="btn btn-sm btn-soft" onClick={async () => setSkips(skips ? null : (await api(`/studio/drive/${s.id}/skips`)).skips)}>Ver recusadas</button>}
         <button className="btn btn-sm btn-ghost" onClick={() => act(() => api(`/studio/drive/${s.id}`, { method: 'PUT', body: { active: !s.active } }))}>{s.active ? <><Pause size={14} /> Pausar</> : <><Play size={14} /> Retomar</>}</button>
         <button className="btn btn-sm btn-ghost" onClick={() => confirm('Desligar esta pasta? Os eventos e fotos já importados continuam no site.') && act(() => api(`/studio/drive/${s.id}`, { method: 'DELETE' }), 'Pasta desligada')}><Trash2 size={14} /> Desligar</button>
       </div>
+      {preview && (
+        <div className="stack" style={{ gap: 8 }}>
+          <b className="small">O que está na pasta {s.name}:</b>
+          <div className="tiny muted">{preview.root.length ? preview.root.map((f) => `${f.type === 'pasta' ? '📁' : '🖼'} ${f.name}`).join('  ·  ') : 'A pasta está vazia (ou ainda não foi compartilhada com a conta do sistema).'}</div>
+          {preview.events.length ? (
+            <div className="table-wrap"><table className="table">
+              <thead><tr><th>Pasta</th><th>Vira o evento</th><th>Data</th><th className="num">Fotos</th><th className="num">Já importadas</th></tr></thead>
+              <tbody>{preview.events.map((e) => (
+                <tr key={e.folder}><td className="small">{e.folder}</td><td><b>{e.title}</b></td><td className="small">{e.date || 'pela foto'}</td>
+                  <td className="num">{e.photos}{e.unsupported ? <div className="tiny" style={{ color: 'var(--warn)' }}>+{e.unsupported} em formato não suportado</div> : null}</td>
+                  <td className="num">{e.imported}</td></tr>
+              ))}</tbody>
+            </table></div>
+          ) : <div className="alert alert-warn">Nenhuma pasta com fotos encontrada. As fotos precisam ser JPG, PNG ou WEBP, dentro de uma pasta de evento (ex.: tudoehfesta / 2026 / 10 / aniversario_luiz_05_10_2026).</div>}
+        </div>
+      )}
       {skips && (
         <div className="stack" style={{ gap: 6 }}>
           <div className="table-wrap"><table className="table"><tbody>

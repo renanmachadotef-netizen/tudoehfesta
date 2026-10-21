@@ -6,7 +6,7 @@ import { config } from '../config.js';
 import { requirePhotographer, requireUser } from '../auth.js';
 import { dirs, saveOriginal, renderPhoto, photoSha, removePhotoFiles, storeAsset } from '../storage.js';
 import { normalizeWatermark, watermarkPreview, clearWatermarkCache } from '../watermark.js';
-import { driveInfo, parseFolderId, folderName } from '../drive.js';
+import { driveInfo, parseFolderId, folderName, previewSource } from '../drive.js';
 import { queueStatus } from '../jobs.js';
 import { encodeDescriptor, invalidateFaces } from '../faces.js';
 import { getSetting } from '../pricing.js';
@@ -492,6 +492,11 @@ r.post('/drive/:id/sync', async (req, res) => {
   const s = await ownSource(req);
   await db.query(`update drive_sources set last_status = 'na fila', active = true where id = $1 and coalesce(last_status, '') <> 'sincronizando'`, [s.id]);
   res.json({ ok: true });
+});
+
+r.get('/drive/:id/preview', async (req, res) => {
+  const s = await ownSource(req);
+  res.json(await previewSource(s));
 });
 
 r.get('/drive/:id/skips', async (req, res) => {
