@@ -118,6 +118,17 @@ export async function matchBatch() {
 }
 
 // Caixas dos rostos borrados de uma foto (exceto os da propria pessoa, quando ela mesma baixa a foto).
+// Para refazer uma foto: borroes da versao publica e, para cada pessoa borrada, os borroes da versao dela
+// (todos menos o proprio rosto).
+export async function blurPlanFor(photoId) {
+  const rows = await db.many('select box, blurred_user_id from faces where photo_id = $1 and blurred_user_id is not null and box is not null', [photoId]);
+  const users = [...new Set(rows.map((r) => r.blurred_user_id))];
+  return {
+    boxes: rows.map((r) => r.box),
+    privateFor: users.map((u) => ({ userId: u, boxes: rows.filter((r) => r.blurred_user_id !== u).map((r) => r.box) })),
+  };
+}
+
 export async function blurBoxesFor(photoId, exceptUserId = null) {
   const rows = await db.many(
     `select box from faces where photo_id = $1 and blurred_user_id is not null and ($2::int is null or blurred_user_id <> $2)`,

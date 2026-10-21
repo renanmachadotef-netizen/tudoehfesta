@@ -5,7 +5,7 @@ import { withOriginal, isDriveOriginal, copyToServer } from './originals.js';
 import { encodeDescriptor, invalidateFaces } from './faces.js';
 import { syncDueSources } from './drive.js';
 import { pollPendingInfinitePay, checkInfinitePay } from './infinitepay.js';
-import { matchBatch, blurBoxesFor } from './matching.js';
+import { matchBatch, blurPlanFor } from './matching.js';
 import { activity, count, progress } from './activity.js';
 
 // Fila em segundo plano guardada no proprio banco (sobrevive a reinicios):
@@ -20,8 +20,10 @@ async function renderBatch() {
   );
   for (const p of rows) {
     try {
-      const blurBoxes = await blurBoxesFor(p.id);
-      const key = await withOriginal(p.original_path, (srcFile) => renderPhoto({ eventId: p.event_id, photoId: p.id, oldKey: p.key, srcFile, blurBoxes }));
+      const plan = await blurPlanFor(p.id);
+      const key = await withOriginal(p.original_path, (srcFile) => renderPhoto({
+        eventId: p.event_id, photoId: p.id, oldKey: p.key, srcFile, blurBoxes: plan.boxes, privateFor: plan.privateFor,
+      }));
       await db.query('update photos set key = $2, needs_render = false where id = $1', [p.id, key]);
       count('render');
     } catch (err) {

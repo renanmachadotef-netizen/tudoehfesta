@@ -11,6 +11,7 @@ import { blurBoxesFor } from '../matching.js';
 import { photoOut } from './public.js';
 import { fail, orderCode, cleanText, rateLimit } from '../util.js';
 import { activity } from '../activity.js';
+import { personalOut, MINE_BLURRED } from './me.js';
 
 const r = Router();
 
@@ -173,7 +174,8 @@ r.get('/my/orders', requireUser, async (req, res) => {
 
 r.get('/my/photos', requireUser, async (req, res) => {
   const rows = await db.many(
-    `select distinct on (p.id) p.id, p.event_id, p.width, p.height, p.key, e.title as event_title, e.slug as event_slug, e.event_date, o.paid_at
+    `select distinct on (p.id) p.id, p.event_id, p.width, p.height, p.key, e.title as event_title, e.slug as event_slug, e.event_date, o.paid_at,
+            ${MINE_BLURRED('$1')}
        from order_items oi join orders o on o.id = oi.order_id and o.status = 'paid'
        join photos p on p.id = oi.photo_id join events e on e.id = p.event_id
       where o.user_id = $1 order by p.id`,
@@ -181,7 +183,7 @@ r.get('/my/photos', requireUser, async (req, res) => {
   );
   rows.sort((a, b) => String(b.event_date).localeCompare(String(a.event_date)) || a.id - b.id);
   res.json({
-    photos: rows.map((p) => ({ ...photoOut(p), event_title: p.event_title, event_slug: p.event_slug, event_date: p.event_date })),
+    photos: rows.map((p) => ({ ...personalOut(p, req.user.id), event_title: p.event_title, event_slug: p.event_slug, event_date: p.event_date })),
   });
 });
 

@@ -15,7 +15,7 @@ import { normalizeWatermark, watermarkPreview, clearWatermarkCache } from '../wa
 import { queueStatus } from '../jobs.js';
 import { driveInfo, SYNC_MINUTES } from '../drive.js';
 import { EVENT_CARD, EVENT_JOINS, eventCard } from './public.js';
-import { fail, cleanText, slugify, photographerBalance } from '../util.js';
+import { fail, cleanText, slugify, photographerBalance, isEmail } from '../util.js';
 
 const r = Router();
 const upload = multer({ dest: dirs.tmp, limits: { fileSize: 10 * 1024 * 1024, files: 1 } });
@@ -234,6 +234,51 @@ r.get('/users', async (req, res) => {
 });
 
 // Sem e-mail transacional ainda: o admin gera uma senha provisoria e manda pelo WhatsApp.
+// Corrigir nome, e-mail ou WhatsApp de um usuario (cadastro mal preenchido).
+r.put('/users/:id', async (req, res) => {
+  const u = await db.one('select id, email from users where id = $1', [Number(req.params.id)]);
+  if (!u) fail(404, 'Usuário não encontrado.');
+  const name = cleanText(req.body?.name, 120);
+  const email = String(req.body?.email || '').trim().toLowerCase();
+  const phone = cleanText(req.body?.phone, 30) || null;
+  if (!name) fail(400, 'Informe o nome.');
+  if (!isEmail(email)) fail(400, 'E-mail inválido.');
+  if (email !== u.email && (await db.one('select id from users where email = $1 and id <> $2', [email, u.id]))) {
+    fail(409, 'Já existe outra conta com este e-mail.');
+  }
+  await db.query('update users set name = $2, email = $3, phone = $4 where id = $1', [u.id, name, email, phone]);
+  activity('cliente', `Admin corrigiu o cadastro do usuário #${u.id}`);
+  res.json({ ok: true });
+});
+
+// Excluir usuario: so quem nao tem compras pagas nem eventos/fotos (o historico financeiro fica intacto).
+// Leva junto rosto cadastrado, sugestoes, pedidos nao pagos e o borrao que ele tinha pedido.
+r.delete('/users/:id', async (req, res) => {
+  const u = await db.one('select id, role, email from users where id = $1', [Number(req.params.id)]);
+  if (!u) fail(404, 'Usuário não encontrado.');
+  if (u.id === req.user.id) fail(400, 'Você não pode excluir a própria conta.');
+  if (u.role === 'admin') fail(400, 'Contas de administrador não podem ser excluídas por aqui.');
+  const block = await db.one(
+    `select (select count(*) from orders where user_id = $1 and status in ('paid', 'refunded'))::int as paid,
+            (select count(*) from events where photographer_id = $1)::int as events,
+            (select count(*) from photos where photographer_id = $1)::int as photos,
+            (select count(*) from payouts where photographer_id = $1)::int as payouts`,
+    [u.id],
+  );
+  if (block.paid) fail(409, `Este usuário tem ${block.paid} compra(s) paga(s): o histórico precisa ficar. Corrija o cadastro em vez de excluir.`);
+  if (block.events || block.photos || block.payouts) fail(409, 'Este fotógrafo tem eventos ou saques registrados. Desative-o em vez de excluir.');
+  const blurred = await db.many('select distinct photo_id from faces where blurred_user_id = $1', [u.id]);
+  await db.tx(async (t) => {
+    await t.query(`delete from orders where user_id = $1 and status not in ('paid', 'refunded')`, [u.id]);
+    await t.query('delete from users where id = $1', [u.id]);
+  });
+  // O borrao que ele pediu deixa de existir: as previas dessas fotos sao refeitas sem ele.
+  if (blurred.length) await db.query('update photos set needs_render = true where id = any($1::int[])', [blurred.map((r) => r.photo_id)]);
+  invalidateFaces();
+  activity('exclusao', `Usuário #${u.id} excluído pelo admin`);
+  res.json({ ok: true });
+});
+
 r.post('/users/:id/reset-password', async (req, res) => {
   const temp = crypto.randomBytes(6).toString('base64url');
   await db.query('update users set password_hash = $2 where id = $1', [Number(req.params.id), await hashPassword(temp)]);

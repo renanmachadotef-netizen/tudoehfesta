@@ -12,12 +12,14 @@ import { watermarkForEvent, watermarkLayers } from './watermark.js';
 //   public/t/<evento>/<foto>-<key>.webp   miniatura 480px com marca d'agua
 //   public/a/...                          avatares, logos, marcas d'agua
 //   tmp/                                  uploads e downloads em andamento
+//   private/<foto>/<cliente>-<key>-p|t.webp  versao da foto sem o borrao do proprio cliente (so ele ve, via /api/my/view)
 // <key> e aleatorio e muda a cada renderizacao: troca o cache do navegador e impede adivinhar enderecos.
 
 export const dirs = {
   originals: path.join(config.dataDir, 'originals'),
   public: path.join(config.dataDir, 'public'),
   tmp: path.join(config.dataDir, 'tmp'),
+  private: path.join(config.dataDir, 'private'),
 };
 for (const d of Object.values(dirs)) fs.mkdirSync(d, { recursive: true });
 
@@ -67,20 +69,29 @@ export async function saveOriginal({ tmpPath, eventId, photoId, originalName, sh
 }
 
 // Borra rostos (caixas normalizadas 0-1, ja na orientacao correta) de quem pediu "borrar minhas imagens".
+// Esconde rostos com mosaico (pixelado) em formato oval. Cerca de 8 blocos na largura do rosto: nao da para
+// reconhecer a pessoa e o resto da foto continua natural.
+const MOSAIC_CELLS = 8;
 export async function blurFaces(buf, width, height, boxes) {
   if (!boxes?.length) return buf;
   const layers = [];
   for (const b of boxes) {
     if (!b || !(b.w > 0) || !(b.h > 0)) continue;
-    const padX = b.w * 0.35;
-    const padY = b.h * 0.45;
+    const padX = b.w * 0.4;
+    const padY = b.h * 0.55;
     const left = Math.max(0, Math.floor((b.x - padX) * width));
     const top = Math.max(0, Math.floor((b.y - padY) * height));
     const w = Math.min(width - left, Math.ceil((b.w + 2 * padX) * width));
     const h = Math.min(height - top, Math.ceil((b.h + 2 * padY) * height));
     if (w < 4 || h < 4) continue;
-    const sigma = Math.max(10, Math.round(Math.max(w, h) / 5));
-    layers.push({ input: await sharp(buf).extract({ left, top, width: w, height: h }).blur(sigma).toBuffer(), left, top });
+    const big = Math.max(w, h);
+    const small = await sharp(buf).extract({ left, top, width: w, height: h })
+      .resize(Math.max(2, Math.round((MOSAIC_CELLS * w) / big)), Math.max(2, Math.round((MOSAIC_CELLS * h) / big)), { fit: 'fill' })
+      .toBuffer();
+    const oval = Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}"><ellipse cx="${w / 2}" cy="${h / 2}" rx="${w / 2}" ry="${h / 2}" fill="#fff"/></svg>`);
+    const tile = await sharp(small).resize(w, h, { fit: 'fill', kernel: 'nearest' }).ensureAlpha()
+      .composite([{ input: oval, blend: 'dest-in' }]).png().toBuffer();
+    layers.push({ input: tile, left, top });
   }
   return layers.length ? sharp(buf).composite(layers).toBuffer() : buf;
 }
@@ -106,13 +117,21 @@ async function renderVariant(input, maxSide, quality, wm, outFile, blurBoxes) {
 }
 
 // Gera vitrine e miniatura a partir do original com a marca d'agua atual do evento. Devolve a nova key.
-export async function renderPhoto({ eventId, photoId, originalPath, oldKey, srcFile, blurBoxes }) {
+export const privateFile = (photoId, userId, key, size) => path.join(dirs.private, String(photoId), `${userId}-${key}-${size === 't' ? 't' : 'p'}.webp`);
+
+// privateFor: [{ userId, boxes }] -> versoes particulares para quem pediu borrao (sem o rosto dele borrado).
+export async function renderPhoto({ eventId, photoId, originalPath, oldKey, srcFile, blurBoxes, privateFor = [] }) {
   const wm = await watermarkForEvent(eventId);
   const key = crypto.randomBytes(8).toString('hex');
   const src = srcFile || originalAbsPath(originalPath);
   await renderVariant(src, 1400, 78, wm, path.join(dirs.public, 'p', String(eventId), fileName(photoId, key)), blurBoxes);
   await renderVariant(src, 480, 70, wm, path.join(dirs.public, 't', String(eventId), fileName(photoId, key)), blurBoxes);
   if (oldKey !== key) await removeVariants(eventId, photoId, oldKey);
+  await fsp.rm(path.join(dirs.private, String(photoId)), { recursive: true, force: true });
+  for (const v of privateFor) {
+    await renderVariant(src, 1400, 78, wm, privateFile(photoId, v.userId, key, 'p'), v.boxes);
+    await renderVariant(src, 480, 70, wm, privateFile(photoId, v.userId, key, 't'), v.boxes);
+  }
   return key;
 }
 
@@ -188,6 +207,7 @@ export async function sweepOrphans(db) {
 
 export async function removePhotoFiles(eventId, photoId, originalPath, key) {
   await removeVariants(eventId, photoId, key);
+  await fsp.rm(path.join(dirs.private, String(photoId)), { recursive: true, force: true });
   if (originalPath && !originalPath.startsWith('drive:')) await fsp.unlink(path.join(dirs.originals, originalPath)).catch(() => {});
 }
 

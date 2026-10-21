@@ -293,15 +293,62 @@ function WatermarkPage() {
   );
 }
 
-function UsersPage() {
-  const [q, setQ] = useState('');
-  const [query, setQuery] = useState('');
-  const { data, loading } = useApi(`/admin/users?q=${encodeURIComponent(query)}`);
-  const reset = async (u) => {
+function UserRow({ u, onChanged }) {
+  const { toast, user: me } = useSite();
+  const [editing, setEditing] = useState(false);
+  const [f, setF] = useState({ name: u.name, email: u.email, phone: u.phone || '' });
+  const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
+  const reset = async () => {
     if (!confirm(`Gerar senha provisória para ${u.email}?`)) return;
     const d = await api(`/admin/users/${u.id}/reset-password`, { method: 'POST' });
     prompt('Senha provisória (envie ao cliente pelo WhatsApp):', d.password);
   };
+  const save = async (e) => {
+    e.preventDefault();
+    try {
+      await api(`/admin/users/${u.id}`, { method: 'PUT', body: f });
+      toast('Cadastro corrigido');
+      setEditing(false);
+      onChanged();
+    } catch (err) { toast(err.message); }
+  };
+  const remove = async () => {
+    if (!confirm(`Excluir a conta de ${u.name} (${u.email})?\n\nSai junto: rosto cadastrado, fotos encontradas e pedidos não pagos. Isso não pode ser desfeito.`)) return;
+    try {
+      await api(`/admin/users/${u.id}`, { method: 'DELETE' });
+      toast('Usuário excluído');
+      onChanged();
+    } catch (err) { toast(err.message); }
+  };
+  if (editing) {
+    return (
+      <tr><td colSpan={6}>
+        <form className="row" style={{ gap: 8, flexWrap: 'wrap' }} onSubmit={save}>
+          <input className="input" style={{ height: 36, width: 200 }} value={f.name} onChange={set('name')} placeholder="Nome" required />
+          <input className="input" style={{ height: 36, width: 240 }} type="email" value={f.email} onChange={set('email')} placeholder="E-mail" required />
+          <input className="input" style={{ height: 36, width: 160 }} value={f.phone} onChange={set('phone')} placeholder="WhatsApp" />
+          <button className="btn btn-sm btn-accent">Salvar</button>
+          <button type="button" className="btn btn-sm btn-ghost" onClick={() => { setEditing(false); setF({ name: u.name, email: u.email, phone: u.phone || '' }); }}>Cancelar</button>
+        </form>
+      </td></tr>
+    );
+  }
+  return (
+    <tr><td>{u.name}</td><td className="small">{u.email}<div>{u.phone}</div></td>
+      <td><span className="badge">{{ customer: 'Cliente', photographer: 'Fotógrafo', admin: 'Admin' }[u.role]}</span></td>
+      <td className="num">{u.orders}</td><td className="small">{dateBR(u.created_at)}</td>
+      <td><div className="row" style={{ gap: 4, flexWrap: 'nowrap' }}>
+        <button className="btn btn-sm btn-ghost" onClick={() => setEditing(true)}>Editar</button>
+        <button className="btn btn-sm btn-ghost" onClick={reset}>Nova senha</button>
+        {u.role !== 'admin' && u.id !== me?.id && <button className="btn btn-sm btn-danger" onClick={remove}>Excluir</button>}
+      </div></td></tr>
+  );
+}
+
+function UsersPage() {
+  const [q, setQ] = useState('');
+  const [query, setQuery] = useState('');
+  const { data, loading, reload } = useApi(`/admin/users?q=${encodeURIComponent(query)}`);
   return (
     <div className="stack">
       <PageHead title="Usuários">
@@ -310,12 +357,7 @@ function UsersPage() {
       {loading ? <Loading /> : (
         <div className="table-wrap"><table className="table">
           <thead><tr><th>Nome</th><th>E-mail</th><th>Tipo</th><th className="num">Compras</th><th>Desde</th><th></th></tr></thead>
-          <tbody>{data.users.map((u) => (
-            <tr key={u.id}><td>{u.name}</td><td className="small">{u.email}<div>{u.phone}</div></td>
-              <td><span className="badge">{{ customer: 'Cliente', photographer: 'Fotógrafo', admin: 'Admin' }[u.role]}</span></td>
-              <td className="num">{u.orders}</td><td className="small">{dateBR(u.created_at)}</td>
-              <td><button className="btn btn-sm btn-ghost" onClick={() => reset(u)}>Nova senha</button></td></tr>
-          ))}</tbody>
+          <tbody>{data.users.map((u) => <UserRow key={u.id} u={u} onChanged={reload} />)}</tbody>
         </table></div>
       )}
     </div>

@@ -5,11 +5,29 @@ import { encodeDescriptor } from '../faces.js';
 import { photoOut } from './public.js';
 import { fail, rateLimit } from '../util.js';
 import { activity } from '../activity.js';
+import { privateFile } from '../storage.js';
 
 // Rosto do cliente (monitoramento + "borrar minhas imagens") e fotos encontradas para ele.
 // Guardamos so os vetores (128 numeros), com consentimento explicito; a selfie nunca sai do aparelho.
 const r = Router();
 r.use(['/me', '/my'], requireUser);
+
+// Foto em que o cliente pediu borrao: ele mesmo ve a versao sem o proprio rosto borrado (os outros veem borrado).
+export const personalOut = (p, userId) => (p.mine_blurred
+  ? { ...photoOut(p), thumb: `/api/my/view/${p.id}/t?k=${p.key}`, preview: `/api/my/view/${p.id}/p?k=${p.key}` }
+  : photoOut(p));
+export const MINE_BLURRED = (param) => `exists (select 1 from faces bf where bf.photo_id = p.id and bf.blurred_user_id = ${param}) as mine_blurred`;
+
+r.get('/my/view/:id/:size', async (req, res) => {
+  const p = await db.one('select id, event_id, key from photos where id = $1', [Number(req.params.id)]);
+  if (!p?.key) return res.status(404).end();
+  const file = privateFile(p.id, req.user.id, p.key, req.params.size);
+  res.set('Cache-Control', 'private, max-age=86400');
+  res.sendFile(file, { dotfiles: 'allow' }, (err) => {
+    // Ainda sendo gerada (ou a pessoa nao esta na foto): mostra a versao publica.
+    if (err && !res.headersSent) res.redirect(302, photoOut(p)[req.params.size === 't' ? 'thumb' : 'preview']);
+  });
+});
 
 r.get('/me/face', async (req, res) => {
   const u = await db.one(
@@ -57,7 +75,7 @@ r.put('/me/privacy', async (req, res) => {
 r.get('/my/matches', async (req, res) => {
   const rows = await db.many(
     `select p.id, p.event_id, p.width, p.height, p.key, m.seen, m.created_at, e.title as event_title, e.slug as event_slug,
-            e.event_date, e.price_cents, e.kind as event_kind
+            e.event_date, e.price_cents, e.kind as event_kind, ${MINE_BLURRED('$1')}
        from user_matches m
        join photos p on p.id = m.photo_id and p.key is not null and not p.hidden
        join events e on e.id = p.event_id and e.status = 'published'
@@ -70,7 +88,7 @@ r.get('/my/matches', async (req, res) => {
   );
   res.json({
     photos: rows.map((p) => ({
-      ...photoOut(p), event_title: p.event_title, event_slug: p.event_slug, event_date: p.event_date,
+      ...personalOut(p, req.user.id), event_title: p.event_title, event_slug: p.event_slug, event_date: p.event_date,
       price_cents: p.price_cents, event_kind: p.event_kind, new: !p.seen,
     })),
   });
