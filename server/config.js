@@ -4,6 +4,10 @@ import crypto from 'node:crypto';
 const env = process.env;
 const isProd = env.NODE_ENV === 'production';
 
+if (isProd && !env.DATABASE_URL) {
+  console.error('[config] DATABASE_URL nao definido. No Easypanel: servico db > Credentials > Internal connection URL, cole em site > Environment.');
+  process.exit(1);
+}
 if (isProd && !env.SESSION_SECRET) {
   console.warn('[config] SESSION_SECRET nao definido: sessoes vao cair a cada reinicio. Defina no Easypanel.');
 }

@@ -49,7 +49,7 @@ Abre o site em http://localhost:5173 e a API na porta 3001. Sem `DATABASE_URL`, 
 
 Projeto `tudoehfesta` com dois serviços:
 
-1. **Postgres** `tudoehfesta-db`.
+1. **Postgres** `db` (postgres:17).
 2. **App** `site`: GitHub `tudoehfesta`, branch `main`, build por `Dockerfile`.
    - **Volume** montado em `/data` (sem isso as fotos somem a cada deploy).
    - Variáveis: ver `.env.example` (`DATABASE_URL`, `SESSION_SECRET`, `PUBLIC_URL`, `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `MP_ACCESS_TOKEN`).
