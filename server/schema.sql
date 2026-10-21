@@ -238,3 +238,8 @@ alter table orders add column if not exists ip_receipt_url text;
 alter table orders add column if not exists installments integer;
 alter table orders add column if not exists paid_amount_cents integer;
 create index if not exists orders_pending_idx on orders (created_at) where status = 'pending';
+
+-- v5: pasta do Drive ligada a um evento especifico (kind = 'event') alem da pasta do ano (kind = 'year').
+alter table drive_sources add column if not exists kind text not null default 'year';
+alter table drive_sources add column if not exists event_id integer references events(id) on delete cascade;
+create unique index if not exists drive_sources_event_idx on drive_sources (event_id) where event_id is not null;

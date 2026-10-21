@@ -7,6 +7,7 @@ import { centsToInput, money } from '../../lib/format.js';
 import { detectFaces, fileToCanvas, loadFaceApi } from '../../lib/faces.js';
 import { Loading, ErrorBox } from '../../components/Layout.jsx';
 import { EVENT_STATUS } from './EventsList.jsx';
+import EventDrive from './EventDrive.jsx';
 
 const blank = { title: '', event_date: new Date().toISOString().slice(0, 10), category_id: '', city: '', venue: '', description: '', price: '15,00', pack_price: '', discount_tiers: [{ min: 5, pct: 20 }], status: 'draft', hide_gallery: false, watermark_mode: 'site' };
 
@@ -351,6 +352,10 @@ export default function EventEditor() {
           Processando no servidor: {queue.render > 0 && `${queue.render} vitrine(s) para refazer`}{queue.render > 0 && queue.faces > 0 && ' · '}{queue.faces > 0 && `${queue.faces} foto(s) procurando rostos`}
         </div>
       )}
+      {event.id && <EventDrive eventId={event.id} onChange={() => {
+        api(`/studio/events/${event.id}`).then((x) => { setEvent(x.event); setQueue(x.queue); }).catch(() => {});
+        api(`/studio/events/${event.id}/photos`).then((x) => setPhotos(x.photos)).catch(() => {});
+      }} />}
       {event.id && <Uploader eventId={event.id} onUploaded={(p) => {
         if (!p) return;
         setPhotos((list) => [...list, { ...p, sold: 0 }]);

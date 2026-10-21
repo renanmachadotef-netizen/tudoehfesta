@@ -20,7 +20,8 @@ Plataforma de venda de fotos de eventos com reconhecimento facial, feita para o 
 - Kit de divulgação: link, QR Code e mensagem pronta para WhatsApp.
 
 **Google Drive** (`/painel/drive`)
-- O fotógrafo liga a pasta do ano. Cada subpasta vira um evento (`2026-09-12 Formatura CEJA - Criciúma` → nome, data e cidade). Fotos soltas vão para "Fotos de 2026".
+- Pasta geral do ano: `2026 / 10 / aniversario_luiz_05_10_2026`. Toda pasta com fotos vira um evento (nome e data lidos do nome da pasta, data no começo ou no fim); pastas de ano e mês só organizam. Fotos soltas na raiz vão para "Fotos de 2026".
+- Pasta de evento específico: no editor do evento (ex.: uma formatura na categoria Formaturas), cola-se o link da pasta dele; só as fotos dela entram ali. A pasta do ano reconhece a mesma pasta e não duplica (se já tinha criado um evento automático, as fotos migram para o cadastrado).
 - A cada `DRIVE_SYNC_MINUTES` o servidor importa as fotos novas, recusa repetidas, corrompidas, HEIC/RAW e de resolução baixa, indexa os rostos (TensorFlow WASM numa thread separada) e publica quando o evento fica pronto.
 - Credencial: `GOOGLE_SERVICE_ACCOUNT_JSON` (pasta privada compartilhada com o e-mail da conta de serviço) ou `GOOGLE_API_KEY` (pasta pública por link).
 

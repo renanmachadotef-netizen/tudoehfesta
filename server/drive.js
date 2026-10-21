@@ -11,11 +11,15 @@ import { uniqueSlug } from './util.js';
 import { detectFacesOnServer } from './facepool.js';
 import { encodeDescriptor, invalidateFaces } from './faces.js';
 
-// Importacao do Google Drive. Estrutura esperada (uma pasta por ano):
-//   2026/                                  <- pasta ligada no painel
-//     2026-09-12 Formatura CEJA - Criciuma/  <- vira um evento (data, nome e cidade vem do nome da pasta)
-//       *.jpg (subpastas tambem valem)
-//     foto-solta.jpg                       <- vai para o evento "Fotos de 2026"
+// Importacao do Google Drive. Dois tipos de pasta ligada:
+//   kind 'year' (pasta geral do ano):
+//     2026/                                <- pasta ligada no painel
+//       10/                                <- pasta so de organizacao (mes): sem fotos, nao vira evento
+//         aniversario_luiz_05_10_2026/     <- tem fotos: vira o evento "Aniversario Luiz", 05/10/2026
+//       foto-solta.jpg                     <- vai para o evento "Fotos de 2026"
+//   kind 'event' (pasta especifica ligada a um evento ja cadastrado, ex.: uma formatura):
+//     todas as fotos da pasta (e subpastas) entram naquele evento. Se a pasta do ano passar pela mesma
+//     pasta, reaproveita o evento (drive_folder_id) e nao duplica fotos (drive_file_id).
 // Acesso: conta de servico (GOOGLE_SERVICE_ACCOUNT_JSON; a pasta fica privada, compartilhada com o e-mail
 // da conta) ou chave de API (GOOGLE_API_KEY; a pasta precisa estar como "qualquer pessoa com o link").
 
@@ -131,25 +135,46 @@ export function parseFolderId(link) {
   return m ? m[1] : null;
 }
 
-// "2026-09-12 Formatura CEJA - Criciuma" | "12-09-2026 Formatura" | "12.09 Arraial" -> { date, title, city }
+const SMALL_WORDS = new Set(['de', 'da', 'do', 'das', 'dos', 'e', 'em', 'na', 'no', 'a', 'o']);
+
+// Nome todo em minusculas (ex.: "aniversario luiz") ganha maiusculas; nomes ja escritos com cuidado ficam como estao.
+function prettyTitle(text) {
+  const t = text.replace(/\s+/g, ' ').trim();
+  if (t !== t.toLowerCase()) return t;
+  return t.split(' ').map((w, i) => (i > 0 && SMALL_WORDS.has(w) ? w : w.charAt(0).toUpperCase() + w.slice(1))).join(' ');
+}
+
+const isoDate = (y, mo, d) => {
+  [y, mo, d] = [y, mo, d].map(Number);
+  if (y < 100) y += 2000;
+  if (!(mo >= 1 && mo <= 12 && d >= 1 && d <= 31 && y >= 1990 && y <= 2100)) return null;
+  return `${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+};
+
+// Le data, titulo e cidade do nome da pasta. Aceita a data no comeco ou no fim, com - . / _ ou espaco:
+//   "aniversario_luiz_05_10_2026"           -> Aniversario Luiz, 2026-10-05
+//   "formatura_futurao_20_10_2026"          -> Formatura Futurao, 2026-10-20
+//   "2026-09-12 Formatura CEJA - Criciuma"  -> Formatura CEJA, 2026-09-12, Criciuma
+//   "12.09 Arraial"                         -> Arraial, <ano>-09-12
 export function parseEventName(name, year) {
-  let rest = String(name).trim();
+  let rest = String(name).replace(/_/g, ' ').replace(/\s+/g, ' ').trim();
   let date = null;
-  let m = rest.match(/^(\d{4})[-_. ](\d{1,2})[-_. ](\d{1,2})\s*[-–_]?\s*/);
-  if (m) date = [m[1], m[2], m[3]];
-  else if ((m = rest.match(/^(\d{1,2})[-_./](\d{1,2})[-_./](\d{2,4})\s*[-–_]?\s*/))) date = [m[3].length === 2 ? `20${m[3]}` : m[3], m[2], m[1]];
-  else if ((m = rest.match(/^(\d{1,2})[-_./](\d{1,2})\s*[-–_]?\s*/))) date = [String(year), m[2], m[1]];
-  if (m) rest = rest.slice(m[0].length);
-  let iso = null;
-  if (date) {
-    const [y, mo, d] = date.map(Number);
-    if (mo >= 1 && mo <= 12 && d >= 1 && d <= 31) iso = `${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+  let m;
+  if ((m = rest.match(/^(\d{4})[-. /](\d{1,2})[-. /](\d{1,2})(?:\s*[-–]\s*|\s+|$)/))) {
+    date = isoDate(m[1], m[2], m[3]);
+  } else if ((m = rest.match(/^(\d{1,2})[-. /](\d{1,2})[-. /](\d{4}|\d{2})(?:\s*[-–]\s*|\s+|$)/))) {
+    date = isoDate(m[3], m[2], m[1]);
+  } else if ((m = rest.match(/(?:^|\s)(\d{1,2})[-. /](\d{1,2})[-. /](\d{4})\s*$/))) {
+    date = isoDate(m[3], m[2], m[1]);
+  } else if ((m = rest.match(/^(\d{1,2})[-./](\d{1,2})(?:\s*[-–]\s*|\s+)/))) {
+    date = isoDate(year, m[2], m[1]);
   }
+  if (m && date) rest = (rest.slice(0, m.index) + ' ' + rest.slice(m.index + m[0].length)).trim();
   let city = null;
   const parts = rest.split(/\s+[-–]\s+/);
   if (parts.length > 1) city = parts.pop().trim();
-  const title = parts.join(' - ').trim() || String(name).trim();
-  return { date: iso, title, city };
+  const title = prettyTitle(parts.join(' - ').replace(/\s*[-–]\s*$/, '')) || prettyTitle(String(name).replace(/_/g, ' '));
+  return { date, title, city: city ? prettyTitle(city) : null };
 }
 
 // Data da foto (EXIF lido pelo Google) -> AAAA-MM-DD
@@ -160,18 +185,65 @@ function fileDate(files) {
   return null;
 }
 
-async function eventForFolder(source, folder, files, isRoot) {
-  const found = await db.one('select id, event_date from events where drive_folder_id = $1', [folder.id]);
+// "2026 / 10 / evento": pastas de ano e mes servem so para organizar e ajudam a datar o evento.
+function dateFromPath(pathNames) {
+  let y = null;
+  let mo = null;
+  for (const n of pathNames) {
+    const s = String(n).trim();
+    if (/^\d{4}$/.test(s)) y = Number(s);
+    else if (/^\d{1,2}$/.test(s) && Number(s) >= 1 && Number(s) <= 12) mo = Number(s);
+    else {
+      const lead = s.match(/^(\d{1,2})\s*[-_. ]/);
+      if (lead && Number(lead[1]) >= 1 && Number(lead[1]) <= 12) mo = Number(lead[1]);
+    }
+  }
+  return y && mo ? isoDate(y, mo, 1) : null;
+}
+
+const isImage = (f) => !isFolder(f) && f.mimeType?.startsWith('image/');
+
+// Percorre a pasta do ano: toda pasta que tem fotos vira um evento (com as fotos das subpastas dela);
+// pastas sem fotos (ano, mes) so organizam. Fotos soltas na raiz vao para "Fotos de <ano>".
+async function collectGroups(source) {
+  if (source.kind === 'event') {
+    return [{ folder: { id: source.folder_id, name: source.name }, files: await listImagesDeep(source.folder_id), path: [], isRoot: false, eventId: source.event_id }];
+  }
+  const groups = [];
+  async function walk(folder, path, depth) {
+    const items = await listChildren(folder.id);
+    const images = items.filter(isImage);
+    const subs = items.filter(isFolder).sort((a, b) => a.name.localeCompare(b.name, 'pt', { numeric: true }));
+    if (depth === 0) {
+      if (images.length) groups.push({ folder, files: images, path, isRoot: true });
+    } else if (images.length) {
+      const files = [...images];
+      for (const s of subs) files.push(...(await listImagesDeep(s.id, depth + 1)));
+      groups.push({ folder, files, path, isRoot: false });
+      return;
+    }
+    if (depth < 4) for (const s of subs) await walk(s, [...path, folder.name], depth + 1);
+  }
+  await walk({ id: source.folder_id, name: source.name }, [], 0);
+  return groups;
+}
+
+async function eventForGroup(source, g) {
+  if (g.eventId) {
+    const ev = await db.one('select id, event_date from events where id = $1', [g.eventId]);
+    if (ev) return ev;
+  }
+  const found = await db.one('select id, event_date from events where drive_folder_id = $1', [g.folder.id]);
   if (found) return found;
-  const parsed = isRoot ? { title: `Fotos de ${source.year}`, date: `${source.year}-01-01`, city: null } : parseEventName(folder.name, source.year);
-  const date = parsed.date || fileDate(files) || (folder.createdTime || '').slice(0, 10) || `${source.year}-01-01`;
+  const parsed = g.isRoot ? { title: `Fotos de ${source.year}`, date: `${source.year}-01-01`, city: null } : parseEventName(g.folder.name, source.year);
+  const date = parsed.date || fileDate(g.files) || dateFromPath([...g.path, g.folder.name]) || (g.folder.createdTime || '').slice(0, 10) || `${source.year}-01-01`;
   const slug = await uniqueSlug('events', `${parsed.title} ${date.slice(0, 4)}`);
   return db.one(
     `insert into events (slug, title, category_id, photographer_id, event_date, city, price_cents, pack_price_cents, status,
        hide_gallery, watermark_mode, drive_folder_id, drive_source_id, auto_publish)
      values ($1, $2, $3, $4, $5, $6, $7, $8, 'draft', $9, $10, $11, $12, $13) returning id, event_date`,
     [slug, parsed.title, source.category_id, source.photographer_id, date, parsed.city, source.price_cents, source.pack_price_cents,
-      source.hide_gallery, source.watermark_mode, folder.id, source.id, source.auto_publish],
+      source.hide_gallery, source.watermark_mode, g.folder.id, source.id, source.auto_publish],
   );
 }
 
@@ -261,11 +333,7 @@ export async function syncSource(sourceId) {
   let errors = 0;
   let remaining = 0;
   try {
-    const root = await listChildren(source.folder_id);
-    const groups = [{ folder: { id: source.folder_id, name: source.name }, files: root.filter((f) => !isFolder(f) && f.mimeType?.startsWith('image/')), isRoot: true }];
-    for (const sub of root.filter(isFolder).sort((a, b) => a.name.localeCompare(b.name))) {
-      groups.push({ folder: sub, files: await listImagesDeep(sub.id), isRoot: false });
-    }
+    const groups = await collectGroups(source);
     const known = new Set((await db.many(
       `select drive_file_id from photos where drive_file_id is not null union select drive_file_id from drive_skips where source_id = $1`,
       [source.id],
@@ -278,7 +346,7 @@ export async function syncSource(sourceId) {
         remaining += fresh.length;
         continue;
       }
-      const event = await eventForFolder(source, g.folder, g.files, g.isRoot);
+      const event = await eventForGroup(source, g);
       for (const file of fresh) {
         if (budget <= 0) {
           remaining++;

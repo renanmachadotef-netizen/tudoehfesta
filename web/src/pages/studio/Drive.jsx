@@ -149,11 +149,15 @@ export default function Drive() {
 
       <div className="card-flat stack small">
         <b>Como funciona</b>
-        <p className="muted">Crie no Drive uma pasta para o ano (ex.: <b>2026</b>) e, dentro dela, uma subpasta para cada evento com a data no começo do nome:</p>
+        <p className="muted">Ligue aqui a <b>pasta geral do ano</b>. Dentro dela, organize por mês e crie uma pasta por evento, com a data no fim do nome. Toda pasta que tiver fotos vira um evento; as de ano e mês só organizam:</p>
         <pre style={{ margin: 0, padding: 12, background: '#fff', borderRadius: 8, fontSize: 13, overflowX: 'auto' }}>{`2026/
-  2026-09-12 Formatura CEJA - Criciúma/   → evento "Formatura CEJA", 12/09/2026, Criciúma
-  2026-10-04 AgroTexas/                   → evento "AgroTexas", 04/10/2026
-  foto-solta.jpg                          → evento "Fotos de 2026"`}</pre>
+  10/
+    aniversario_luiz_05_10_2026/        → evento "Aniversario Luiz", 05/10/2026
+    formatura_futurao_20_10_2026/       → evento "Formatura Futurao", 20/10/2026
+  11/
+    casamento_ana_e_joao_15_11_2026/    → evento "Casamento Ana e Joao", 15/11/2026
+  foto-solta.jpg                        → evento "Fotos de 2026"`}</pre>
+        <p className="muted">Quer um evento com cadastro próprio (ex.: uma <b>formatura</b> na categoria Formaturas)? Crie o evento em <Link to="/painel/eventos/novo" style={{ textDecoration: 'underline' }}>Novo evento</Link> e cole o link da pasta dele no quadro "Pasta do Google Drive". A pasta do ano reconhece essa pasta e não duplica nada.</p>
         <p className="muted">A cada {info.sync_minutes} minutos o sistema confere a pasta, cria os eventos, importa as fotos novas, recusa repetidas, corrompidas e de resolução baixa, reconhece os rostos e publica. Pode ir colocando fotos durante o evento.</p>
         {info.mode === 'service_account' && <p>Compartilhe a pasta (como <b>Leitor</b>) com: <code style={{ userSelect: 'all' }}>{info.share_with}</code></p>}
         {info.mode === 'api_key' && <p>Deixe a pasta como <b>“Qualquer pessoa com o link”</b> (Leitor).</p>}
@@ -176,6 +180,23 @@ export default function Drive() {
       )}
 
       {sources.map((s) => <SourceCard key={s.id} s={s} reload={reload} />)}
+      {data.eventSources?.length > 0 && (
+        <div className="stack">
+          <h3>Pastas de eventos específicos</h3>
+          <div className="table-wrap"><table className="table">
+            <thead><tr><th>Evento</th><th>Pasta</th><th>Categoria</th><th className="num">Fotos</th><th>Status</th></tr></thead>
+            <tbody>{data.eventSources.map((e) => (
+              <tr key={e.id}>
+                <td><Link to={`/painel/eventos/${e.event_id}`} style={{ fontWeight: 600 }}>{e.event_title}</Link></td>
+                <td className="small">{e.name}</td>
+                <td className="small">{e.category_name || '—'}</td>
+                <td className="num">{e.photos}</td>
+                <td className="small">{e.last_status === 'erro' ? <span style={{ color: 'var(--bad)' }}>erro</span> : e.last_status || '—'}</td>
+              </tr>
+            ))}</tbody>
+          </table></div>
+        </div>
+      )}
       {!sources.length && info.configured && !adding && <p className="muted">Nenhuma pasta ligada ainda.</p>}
       <p className="tiny muted">Os eventos criados pela pasta aparecem em <Link to="/painel/eventos" style={{ textDecoration: 'underline' }}>Eventos</Link>, onde dá para ajustar nome, data, preço e capa.</p>
     </div>

@@ -420,10 +420,17 @@ r.get('/drive', async (req, res) => {
             (select count(*) from photos p join events e on e.id = p.event_id where e.drive_source_id = s.id and (p.needs_faces or p.needs_render))::int as pending,
             (select count(*) from drive_skips k where k.source_id = s.id)::int as skipped
        from drive_sources s left join categories c on c.id = s.category_id
-      where s.photographer_id = $1 order by s.year desc, s.id desc`,
+      where s.photographer_id = $1 and s.kind = 'year' order by s.year desc, s.id desc`,
     [req.user.id],
   );
-  res.json({ info: driveInfo(), sources });
+  const eventSources = await db.many(
+    `select s.id, s.name, s.last_status, s.last_sync_at, s.last_error, s.active, e.id as event_id, e.title as event_title,
+            c.name as category_name, (select count(*) from photos p where p.event_id = e.id)::int as photos
+       from drive_sources s join events e on e.id = s.event_id left join categories c on c.id = e.category_id
+      where s.photographer_id = $1 and s.kind = 'event' order by e.event_date desc`,
+    [req.user.id],
+  );
+  res.json({ info: driveInfo(), sources, eventSources });
 });
 
 function sourceFields(b) {
@@ -452,8 +459,8 @@ r.post('/drive', async (req, res) => {
   if (exists) fail(409, 'Essa pasta já está ligada.');
   const name = await folderName(folderId);
   await db.query(
-    `insert into drive_sources (photographer_id, folder_id, name, year, category_id, price_cents, pack_price_cents, auto_publish, hide_gallery, watermark_mode, keep_in_drive, last_status)
-     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'na fila')`,
+    `insert into drive_sources (photographer_id, folder_id, name, year, category_id, price_cents, pack_price_cents, auto_publish, hide_gallery, watermark_mode, keep_in_drive, last_status, kind)
+     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'na fila', 'year')`,
     [req.user.id, folderId, name, f.year, f.category_id, f.price_cents, f.pack_price_cents, f.auto_publish, f.hide_gallery, f.watermark_mode, f.keep_in_drive],
   );
   res.json({ ok: true, name });
@@ -502,6 +509,58 @@ r.delete('/drive/:id', async (req, res) => {
   const s = await ownSource(req);
   await db.query('update events set drive_source_id = null, auto_publish = false where drive_source_id = $1', [s.id]);
   await db.query('delete from drive_sources where id = $1', [s.id]);
+  res.json({ ok: true });
+});
+
+// ---------- Pasta do Drive de um evento especifico (ex.: formatura com a pasta propria) ----------
+
+r.get('/events/:id/drive', async (req, res) => {
+  const ev = await ownEvent(req, req.params.id);
+  const s = await db.one(
+    `select s.*, (select count(*) from photos p where p.event_id = s.event_id)::int as photos,
+            (select count(*) from photos p where p.event_id = s.event_id and (p.needs_faces or p.needs_render))::int as pending,
+            (select count(*) from drive_skips k where k.source_id = s.id)::int as skipped
+       from drive_sources s where s.event_id = $1`,
+    [ev.id],
+  );
+  res.json({ info: driveInfo(), source: s, folder_id: ev.drive_folder_id });
+});
+
+r.post('/events/:id/drive', async (req, res) => {
+  const ev = await ownEvent(req, req.params.id);
+  if (!driveInfo().configured) fail(400, 'A integração com o Google Drive ainda não foi configurada no servidor.');
+  const folderId = parseFolderId(req.body?.link);
+  if (!folderId) fail(400, 'Cole o link de uma pasta do Google Drive.');
+  const name = await folderName(folderId);
+  const other = await db.one('select id, title from events where drive_folder_id = $1 and id <> $2', [folderId, ev.id]);
+  if (other) {
+    // A pasta do ano ja tinha criado um evento para esta pasta: as fotos passam para este evento.
+    const sold = await db.one('select count(*)::int as n from order_items where event_id = $1', [other.id]);
+    if (sold.n) fail(409, `Essa pasta já está no evento "${other.title}", que tem vendas. Use aquele evento ou fale com o suporte.`);
+    await db.tx(async (t) => {
+      await t.query('update events set drive_folder_id = null where id = $1', [other.id]);
+      await t.query('update photos set event_id = $2, needs_render = true where event_id = $1', [other.id, ev.id]);
+      await t.query('update faces set event_id = $2, year = $3 where event_id = $1', [other.id, ev.id, Number(String(ev.event_date).slice(0, 4))]);
+      await t.query('delete from events where id = $1', [other.id]);
+    });
+    invalidateFaces();
+  }
+  await db.query('update events set drive_folder_id = $2 where id = $1', [ev.id, folderId]);
+  await db.query(
+    `insert into drive_sources (photographer_id, folder_id, name, year, kind, event_id, category_id, price_cents, pack_price_cents,
+       auto_publish, hide_gallery, watermark_mode, keep_in_drive, last_status)
+     values ($1, $2, $3, $4, 'event', $5, $6, $7, $8, false, $9, $10, $11, 'na fila')
+     on conflict (event_id) where event_id is not null do update set folder_id = excluded.folder_id, name = excluded.name,
+       active = true, last_status = 'na fila', last_error = null`,
+    [ev.photographer_id, folderId, name, Number(String(ev.event_date).slice(0, 4)), ev.id, ev.category_id, ev.price_cents,
+      ev.pack_price_cents, ev.hide_gallery, ev.watermark_mode, req.body?.keep_in_drive !== false],
+  );
+  res.json({ ok: true, name, merged: other ? other.title : null });
+});
+
+r.delete('/events/:id/drive', async (req, res) => {
+  const ev = await ownEvent(req, req.params.id);
+  await db.query('delete from drive_sources where event_id = $1', [ev.id]);
   res.json({ ok: true });
 });
 
