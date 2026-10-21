@@ -27,7 +27,7 @@ import { activity, count, progress } from './activity.js';
 
 const API = 'https://www.googleapis.com/drive/v3';
 export const SYNC_MINUTES = Math.max(2, Number(process.env.DRIVE_SYNC_MINUTES) || 10);
-const FILES_PER_RUN = 60;
+const FILES_PER_RUN = Math.max(20, Number(process.env.DRIVE_FILES_PER_RUN) || 200);
 const PARALLEL = Math.max(1, Number(process.env.DRIVE_PARALLEL) || 3);
 const MIN_SIDE = 600;
 const IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
