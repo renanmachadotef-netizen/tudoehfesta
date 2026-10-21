@@ -138,15 +138,19 @@ export default function Cart() {
               <b>Pagamento</b>
               <div className="row" style={{ flexWrap: 'nowrap' }}>
                 <button type="button" className={`btn grow ${method === 'pix' ? '' : 'btn-ghost'}`} onClick={() => setMethod('pix')}><QrCode size={17} /> Pix</button>
-                {payments?.mercadopago && (
+                {payments?.card && (
                   <button type="button" className={`btn grow ${method === 'card' ? '' : 'btn-ghost'}`} onClick={() => setMethod('card')}><CreditCard size={17} /> Cartão</button>
                 )}
               </div>
-              {payments?.mercadopago && method === 'pix' && (
+              {payments?.pix === 'mercadopago' && method === 'pix' && (
                 <label className="field"><span>CPF <small>(opcional, aparece no comprovante)</small></span>
                   <input className="input" inputMode="numeric" value={cpf} onChange={(e) => setCpf(e.target.value)} placeholder="000.000.000-00" />
                 </label>
               )}
+              {((method === 'pix' && payments?.pix === 'infinitepay') || (method === 'card' && payments?.card === 'infinitepay')) && (
+                <span className="tiny muted">Você vai para a página segura da InfinitePay e volta aqui com as fotos liberadas.</span>
+              )}
+              {method === 'card' && payments?.card === 'mercadopago' && <span className="tiny muted">Você vai para a página segura do Mercado Pago.</span>}
               {error && <div className="alert alert-bad">{error}</div>}
               <button className="btn btn-accent btn-lg" disabled={busy || !price?.total} onClick={checkout}>
                 {busy ? 'Gerando pagamento…' : `Pagar ${money(price?.total)}`}

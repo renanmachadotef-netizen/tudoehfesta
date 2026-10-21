@@ -222,3 +222,12 @@ create table if not exists drive_skips (
 insert into settings (key, value) values
   ('watermark', '{"type": "text", "text": "tudoehfesta.com", "image": null, "opacity": 0.35, "layout": "tiled"}')
 on conflict (key) do nothing;
+
+-- v3: originais que ficam so no Drive (original_path = 'drive:<id>') e copia das fotos vendidas; InfinitePay.
+alter table drive_sources add column if not exists keep_in_drive boolean not null default true;
+alter table photos add column if not exists needs_copy boolean not null default false;
+create index if not exists photos_copy_idx on photos (id) where needs_copy;
+alter table orders add column if not exists payment_provider text;
+alter table orders add column if not exists ip_slug text;
+alter table orders add column if not exists ip_transaction_nsu text;
+alter table orders add column if not exists checkout_url text;

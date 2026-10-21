@@ -63,8 +63,12 @@ Projeto `tudoehfesta` com dois serviços:
    - **Volume** montado em `/data` (sem isso as fotos somem a cada deploy).
    - Variáveis: ver `.env.example` (`DATABASE_URL`, `SESSION_SECRET`, `PUBLIC_URL`, `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `MP_ACCESS_TOKEN`).
    - Domínio: `www.tudoehfesta.com` (e `tudoehfesta.com`) na porta 80.
-3. **Mercado Pago**: em Suas integrações, crie a aplicação, copie o Access Token de produção para `MP_ACCESS_TOKEN` e configure o webhook (evento "Pagamentos") para `https://www.tudoehfesta.com/api/webhooks/mercadopago`. Mesmo sem webhook, a página do pedido confere o pagamento sozinha a cada 5 segundos.
+3. **InfinitePay** (opcional): `INFINITEPAY_HANDLE` = sua InfiniteTag. O cliente paga na página da InfinitePay (Pix ou cartão até 12x) e volta para o pedido. Confirmação pelo webhook `/api/webhooks/infinitepay` (o site passa a URL sozinho) e pelo retorno do cliente, sempre conferida no `payment_check`.
+4. **Mercado Pago**: em Suas integrações, crie a aplicação, copie o Access Token de produção para `MP_ACCESS_TOKEN` e configure o webhook (evento "Pagamentos") para `https://www.tudoehfesta.com/api/webhooks/mercadopago`. Mesmo sem webhook, a página do pedido confere o pagamento sozinha a cada 5 segundos.
 
 ## Armazenamento
+
+Fotos importadas do Drive com "Guardar os originais só no Drive" ligado: o servidor guarda só vitrine e miniatura; o original é buscado no Drive na hora do download e copiado para o servidor quando a foto é vendida. Não apague nem mova essas fotos no Drive.
+
 
 Cada foto ocupa o original mais cerca de 300 KB (vitrine e miniatura). Com originais de 8 MB, 10 mil fotos dão por volta de 80 GB. O VPS tem ~70 GB livres: acompanhe o disco no Easypanel. Próximo passo quando encher: mover originais para um armazenamento de objetos (Cloudflare R2 ou Backblaze B2).

@@ -8,6 +8,8 @@ import sharp from 'sharp';
 import { db } from './db.js';
 import { dirs, fileSha, saveOriginal, renderPhoto } from './storage.js';
 import { uniqueSlug } from './util.js';
+import { detectFacesOnServer } from './facepool.js';
+import { encodeDescriptor, invalidateFaces } from './faces.js';
 
 // Importacao do Google Drive. Estrutura esperada (uma pasta por ano):
 //   2026/                                  <- pasta ligada no painel
@@ -111,6 +113,11 @@ async function listImagesDeep(folderId, depth = 0) {
   return files;
 }
 
+export async function downloadDriveFile(fileId, dest) {
+  const res = await driveFetch(`${API}/files/${fileId}?alt=media`);
+  await pipeline(Readable.fromWeb(res.body), fs.createWriteStream(dest));
+}
+
 export async function folderName(folderId) {
   const res = await driveFetch(`${API}/files/${folderId}?fields=id,name,mimeType`);
   const f = await res.json();
@@ -183,8 +190,7 @@ async function importFile(source, event, file) {
   }
   const tmp = path.join(dirs.tmp, `drive-${file.id}`);
   try {
-    const res = await driveFetch(`${API}/files/${file.id}?alt=media`);
-    await pipeline(Readable.fromWeb(res.body), fs.createWriteStream(tmp));
+    await downloadDriveFile(file.id, tmp);
     let meta;
     try {
       meta = await sharp(tmp).metadata();
@@ -207,12 +213,35 @@ async function importFile(source, event, file) {
       [event.id, source.photographer_id, file.name, file.name, file.id],
     );
     try {
-      const stored = await saveOriginal({ tmpPath: tmp, eventId: event.id, photoId: photo.id, originalName: file.name, sha256: sha });
-      const key = await renderPhoto({ eventId: event.id, photoId: photo.id, originalPath: stored.originalPath });
-      await db.query(
-        `update photos set original_path = $2, width = $3, height = $4, bytes = $5, sha256 = $6, key = $7, needs_faces = true where id = $1`,
-        [photo.id, stored.originalPath, stored.width, stored.height, stored.bytes, stored.sha256, key],
-      );
+      if (source.keep_in_drive) {
+        // Original continua so no Drive: gera vitrine e rostos agora, enquanto o arquivo esta baixado.
+        const { size } = await fsp.stat(tmp);
+        const rotated = meta.orientation && meta.orientation >= 5;
+        const key = await renderPhoto({ eventId: event.id, photoId: photo.id, srcFile: tmp });
+        let faces = [];
+        try {
+          faces = await detectFacesOnServer(tmp);
+        } catch (err) {
+          console.error('[drive] rostos', file.name, err.message);
+        }
+        const year = Number(String(event.event_date).slice(0, 4));
+        for (const f of faces.slice(0, 60)) {
+          const buf = encodeDescriptor(f.d);
+          if (buf) await db.query('insert into faces (photo_id, event_id, year, descriptor, box) values ($1, $2, $3, $4, $5::jsonb)', [photo.id, event.id, year, buf, JSON.stringify(f.box)]);
+        }
+        await db.query(
+          `update photos set original_path = $2, width = $3, height = $4, bytes = $5, sha256 = $6, key = $7, faces_count = $8 where id = $1`,
+          [photo.id, `drive:${file.id}`, rotated ? meta.height : meta.width, rotated ? meta.width : meta.height, size, sha, key, faces.length],
+        );
+        if (faces.length) invalidateFaces();
+      } else {
+        const stored = await saveOriginal({ tmpPath: tmp, eventId: event.id, photoId: photo.id, originalName: file.name, sha256: sha });
+        const key = await renderPhoto({ eventId: event.id, photoId: photo.id, originalPath: stored.originalPath });
+        await db.query(
+          `update photos set original_path = $2, width = $3, height = $4, bytes = $5, sha256 = $6, key = $7, needs_faces = true where id = $1`,
+          [photo.id, stored.originalPath, stored.width, stored.height, stored.bytes, stored.sha256, key],
+        );
+      }
     } catch (err) {
       await db.query('delete from photos where id = $1', [photo.id]);
       throw err;

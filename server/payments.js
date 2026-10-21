@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import { config } from './config.js';
 import { db } from './db.js';
+import { getSetting } from './pricing.js';
 
 // Mercado Pago: Pix direto (QR na tela) e Checkout Pro (cartao, redireciona).
 // Sem MP_ACCESS_TOKEN o site funciona em "Pix manual": mostra a chave Pix do site e o admin
@@ -92,6 +93,12 @@ export async function markOrderPaid(orderId, method) {
       [orderId, method || null],
     );
     const order = r.rows[0];
+    if (order) {
+      await t.query(
+        `update photos set needs_copy = true where original_path like 'drive:%' and id in (select photo_id from order_items where order_id = $1)`,
+        [order.id],
+      );
+    }
     if (order?.coupon_code) {
       await t.query('update coupons set uses = uses + 1 where upper(code) = upper($1)', [order.coupon_code]);
     }
@@ -121,4 +128,62 @@ export async function findPaymentsByReference(code) {
   if (!mpEnabled()) return [];
   const data = await mp(`/v1/payments/search?external_reference=${encodeURIComponent(code)}&sort=date_created&criteria=desc`);
   return data.results || [];
+}
+
+// ---------- InfinitePay (Checkout Integrado) ----------
+// Sem chave secreta: o lojista e identificado pela InfiniteTag (INFINITEPAY_HANDLE). Como o webhook nao
+// e assinado, toda confirmacao passa pelo payment_check antes de liberar as fotos.
+
+const IP = 'https://api.checkout.infinitepay.io';
+export const ipHandle = () => String(process.env.INFINITEPAY_HANDLE || '').trim().replace(/^\$/, '');
+export const ipEnabled = () => !!ipHandle();
+
+async function ipPost(pathname, body) {
+  const res = await fetch(IP + pathname, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(`InfinitePay: ${data.message || data.error || `HTTP ${res.status}`}`);
+  return data;
+}
+
+export async function createInfinitePayLink(order, items) {
+  const data = await ipPost('/links', {
+    handle: ipHandle(),
+    items: [{ quantity: 1, price: order.total_cents, description: `Fotos Tudo Eh Festa - ${items} foto${items > 1 ? 's' : ''} (pedido ${order.code})` }],
+    order_nsu: order.code,
+    redirect_url: `${config.publicUrl}/pedido/${order.code}`,
+    webhook_url: config.publicUrl.startsWith('https://') ? `${config.publicUrl}/api/webhooks/infinitepay` : undefined,
+    customer: { name: order.buyer_name, email: order.buyer_email },
+  });
+  const url = data.url || data.link || data.checkout_url || data.payment_url || data.data?.url;
+  if (!url) throw new Error('InfinitePay nao devolveu o link de pagamento');
+  return url;
+}
+
+// Confere na InfinitePay se o pedido foi pago (usado pelo webhook e pelo retorno do cliente).
+export async function checkInfinitePay(order, { transactionNsu, slug }) {
+  if (!ipEnabled() || !transactionNsu || !slug || order.status !== 'pending') return order;
+  await db.query('update orders set ip_slug = $2, ip_transaction_nsu = $3 where id = $1', [order.id, slug, transactionNsu]);
+  const r = await ipPost('/payment_check', { handle: ipHandle(), order_nsu: order.code, transaction_nsu: transactionNsu, slug });
+  if (r.success && r.paid) {
+    if (Number(r.amount) < order.total_cents) {
+      console.warn('[infinitepay] valor menor que o pedido', order.code, r.amount);
+      return order;
+    }
+    return (await markOrderPaid(order.id, r.capture_method === 'pix' ? 'pix' : 'cartao')) || order;
+  }
+  return order;
+}
+
+// Qual servico atende cada forma de pagamento (configuravel no admin quando os dois estao ativos).
+export async function paymentOptions() {
+  const mp = mpEnabled();
+  const ip = ipEnabled();
+  const cfg = (await getSetting('payments', {})) || {};
+  const pick = (want, order) => (want === 'mercadopago' && mp) || (want === 'infinitepay' && ip) ? want : order.find((x) => (x === 'mercadopago' ? mp : ip)) || null;
+  return {
+    mercadopago: mp,
+    infinitepay: ip,
+    pix: pick(cfg.pix, ['mercadopago', 'infinitepay']) || 'manual',
+    card: pick(cfg.card, ['infinitepay', 'mercadopago']),
+  };
 }

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useLocation, useParams } from 'react-router-dom';
 import { CheckCircle2, Clock, Copy, Download, MessageCircle, XCircle } from 'lucide-react';
 import { api } from '../lib/api.js';
 import { useSite, useTitle } from '../lib/site.jsx';
@@ -12,6 +12,7 @@ export default function Order() {
   const { user, ready, toast } = useSite();
   const [order, setOrder] = useState(null);
   const [error, setError] = useState(null);
+  const { search } = useLocation();
   useTitle(`Pedido ${code}`);
 
   useEffect(() => {
@@ -20,7 +21,8 @@ export default function Order() {
     let timer;
     const load = async () => {
       try {
-        const d = await api(`/orders/${code}`);
+        // Na volta da InfinitePay a URL traz transaction_nsu e slug: o servidor confere o pagamento com eles.
+        const d = await api(`/orders/${code}${search}`);
         if (!alive) return;
         setOrder(d.order);
         // Enquanto aguarda o Pix, confere a cada 5 s.
@@ -31,7 +33,7 @@ export default function Order() {
     };
     load();
     return () => { alive = false; clearTimeout(timer); };
-  }, [code, user]);
+  }, [code, user, search]);
 
   if (ready && !user) {
     return <div className="container"><div className="auth-wrap card stack"><h3>Entre para ver seu pedido</h3><AuthForm /></div></div>;
@@ -97,7 +99,11 @@ export default function Order() {
       )}
 
       {order.status === 'pending' && !order.pix_qr && !order.manual_pix && (
-        <div className="alert alert-warn">Estamos aguardando a confirmação do pagamento pelo Mercado Pago. Esta página atualiza sozinha.</div>
+        <div className="card stack">
+          <b className="row" style={{ gap: 8 }}><Clock size={18} color="var(--warn)" /> Aguardando a confirmação do pagamento</b>
+          <span className="small muted">Se você já pagou, esta página atualiza sozinha em instantes. Se ainda não, continue de onde parou:</span>
+          {order.checkout_url && <a className="btn btn-accent" href={order.checkout_url} style={{ alignSelf: 'flex-start' }}>Ir para o pagamento ({order.payment_provider === 'infinitepay' ? 'InfinitePay' : 'Mercado Pago'})</a>}
+        </div>
       )}
 
       {order.status === 'paid' && (

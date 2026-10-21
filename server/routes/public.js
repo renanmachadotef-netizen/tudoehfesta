@@ -3,7 +3,7 @@ import { db } from '../db.js';
 import { getSetting, priceCart } from '../pricing.js';
 import { searchFaces, DIM, DEFAULT_THRESHOLD } from '../faces.js';
 import { previewUrl, thumbUrl } from '../storage.js';
-import { mpEnabled } from '../payments.js';
+import { paymentOptions } from '../payments.js';
 import { fail, rateLimit } from '../util.js';
 
 const r = Router();
@@ -68,7 +68,7 @@ r.get('/site', async (req, res) => {
     categories,
     years,
     totals,
-    payments: { mercadopago: mpEnabled() },
+    payments: await paymentOptions(),
     commission_pct: Number(await getSetting('commission_pct', 15)),
     user: req.user,
   });

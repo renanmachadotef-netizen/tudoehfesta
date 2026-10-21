@@ -328,7 +328,7 @@ function SettingsPage() {
   const [f, setF] = useState(null);
   if (loading) return <Loading />;
   const s = data.settings;
-  const form = f || { commission_pct: s.commission_pct, release_days: s.release_days, min_payout: centsToInput(s.min_payout_cents), ...s.site };
+  const form = f || { commission_pct: s.commission_pct, release_days: s.release_days, min_payout: centsToInput(s.min_payout_cents), ...s.site, pay_pix: data.payments.pix, pay_card: data.payments.card || '' };
   const set = (k) => (e) => setF({ ...form, [k]: e.target.value });
   const save = async (e) => {
     e.preventDefault();
@@ -337,6 +337,7 @@ function SettingsPage() {
       body: {
         commission_pct: form.commission_pct, release_days: form.release_days,
         min_payout_cents: Math.round(Number(String(form.min_payout).replace(',', '.')) * 100),
+        payments: { pix: form.pay_pix, card: form.pay_card },
         site: { whatsapp: form.whatsapp, instagram: form.instagram, tagline: form.tagline, about: form.about, pix_key: form.pix_key, pix_name: form.pix_name, since: form.since },
       },
     });
@@ -365,9 +366,29 @@ function SettingsPage() {
       </div>
       <div className="card stack">
         <h3>Pagamentos</h3>
-        <div className={`alert ${data.mercadopago ? 'alert-ok' : 'alert-warn'}`}>
-          {data.mercadopago ? 'Mercado Pago ativo: Pix automático e cartão.' : 'Mercado Pago não configurado. Enquanto isso, o cliente vê a chave Pix abaixo e você confirma o pedido manualmente.'}
+        <div className="row small">
+          <span className={`badge ${data.payments.mercadopago ? 'badge-ok' : ''}`}>Mercado Pago {data.payments.mercadopago ? 'ativo' : 'não configurado'}</span>
+          <span className={`badge ${data.payments.infinitepay ? 'badge-ok' : ''}`}>InfinitePay {data.payments.infinitepay ? 'ativa' : 'não configurada'}</span>
         </div>
+        {!data.payments.mercadopago && !data.payments.infinitepay && (
+          <div className="alert alert-warn">Nenhum serviço de pagamento automático ativo: o cliente vê a chave Pix abaixo e você confirma o pedido em Pedidos. Ative no Easypanel com <code>MP_ACCESS_TOKEN</code> e/ou <code>INFINITEPAY_HANDLE</code>.</div>
+        )}
+        {data.payments.mercadopago && data.payments.infinitepay && (
+          <div className="grid-2">
+            <label className="field"><span>Pix pelo</span>
+              <select className="select" value={form.pay_pix} onChange={set('pay_pix')}>
+                <option value="mercadopago">Mercado Pago (QR Code na própria página)</option>
+                <option value="infinitepay">InfinitePay (página da InfinitePay)</option>
+              </select>
+            </label>
+            <label className="field"><span>Cartão pelo</span>
+              <select className="select" value={form.pay_card} onChange={set('pay_card')}>
+                <option value="infinitepay">InfinitePay</option>
+                <option value="mercadopago">Mercado Pago</option>
+              </select>
+            </label>
+          </div>
+        )}
         <div className="grid-2">
           <label className="field"><span>Chave Pix (modo manual)</span><input className="input" value={form.pix_key || ''} onChange={set('pix_key')} /></label>
           <label className="field"><span>Nome do recebedor</span><input className="input" value={form.pix_name || ''} onChange={set('pix_name')} /></label>

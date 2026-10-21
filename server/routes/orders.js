@@ -1,12 +1,11 @@
-import fs from 'node:fs';
 import path from 'node:path';
 import { Router } from 'express';
 import { Zip, ZipPassThrough } from 'fflate';
 import { db } from '../db.js';
 import { requireUser } from '../auth.js';
 import { priceCart, getSetting } from '../pricing.js';
-import { createPix, createCheckout, mpEnabled, syncPayment, findPaymentsByReference } from '../payments.js';
-import { originalAbsPath } from '../storage.js';
+import { createPix, createCheckout, mpEnabled, syncPayment, findPaymentsByReference, paymentOptions, createInfinitePayLink, checkInfinitePay } from '../payments.js';
+import { originalStream } from '../originals.js';
 import { photoOut } from './public.js';
 import { fail, orderCode, cleanText, rateLimit } from '../util.js';
 
@@ -36,6 +35,8 @@ async function orderOut(order) {
     pix_qr: order.status === 'pending' ? order.pix_qr : null,
     pix_qr_base64: order.status === 'pending' ? order.pix_qr_base64 : null,
     pix_expires_at: order.pix_expires_at,
+    checkout_url: order.status === 'pending' ? order.checkout_url : null,
+    payment_provider: order.payment_provider,
     manual_pix: order.payment_method === 'pix_manual' && order.status === 'pending'
       ? { key: site.pix_key || '', name: site.pix_name || '', whatsapp: site.whatsapp || '' }
       : null,
@@ -59,13 +60,15 @@ r.post('/orders', requireUser, rateLimit('orders', 20, 60_000), async (req, res)
   );
   if (owned.length) fail(409, `Você já comprou ${owned.length} dessas fotos. Veja em "Minhas fotos".`);
 
-  const payMethod = mpEnabled() ? (method === 'card' ? 'cartao' : 'pix') : 'pix_manual';
+  const opts = await paymentOptions();
+  const provider = method === 'card' && opts.card ? opts.card : opts.pix;
+  const payMethod = provider === 'manual' ? 'pix_manual' : method === 'card' && opts.card ? 'cartao' : 'pix';
   const order = await db.tx(async (t) => {
     const o = (await t.query(
-      `insert into orders (code, user_id, subtotal_cents, discount_cents, total_cents, payment_method, buyer_name, buyer_email, buyer_cpf, coupon_code)
-       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) returning *`,
+      `insert into orders (code, user_id, subtotal_cents, discount_cents, total_cents, payment_method, buyer_name, buyer_email, buyer_cpf, coupon_code, payment_provider)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) returning *`,
       [orderCode(), req.user.id, priced.subtotal, priced.discount, priced.total, payMethod, req.user.name, req.user.email,
-        cleanText(String(cpf || '').replace(/\D/g, ''), 11), priced.coupon?.applied ? priced.coupon.code : null],
+        cleanText(String(cpf || '').replace(/\D/g, ''), 11), priced.coupon?.applied ? priced.coupon.code : null, provider],
     )).rows[0];
     for (const it of priced.items) {
       await t.query(
@@ -79,7 +82,10 @@ r.post('/orders', requireUser, rateLimit('orders', 20, 60_000), async (req, res)
 
   let redirect = null;
   try {
-    if (payMethod === 'pix') {
+    if (provider === 'infinitepay') {
+      redirect = await createInfinitePayLink(order, priced.items.length);
+      await db.query('update orders set checkout_url = $2 where id = $1', [order.id, redirect]);
+    } else if (payMethod === 'pix') {
       const pix = await createPix(order);
       await db.query(
         'update orders set mp_payment_id = $2, pix_qr = $3, pix_qr_base64 = $4, pix_expires_at = $5 where id = $1',
@@ -87,7 +93,7 @@ r.post('/orders', requireUser, rateLimit('orders', 20, 60_000), async (req, res)
       );
     } else if (payMethod === 'cartao') {
       const pref = await createCheckout(order, priced.items.length);
-      await db.query('update orders set mp_preference_id = $2 where id = $1', [order.id, pref.preferenceId]);
+      await db.query('update orders set mp_preference_id = $2, checkout_url = $3 where id = $1', [order.id, pref.preferenceId, pref.url]);
       redirect = pref.url;
     }
   } catch (err) {
@@ -101,7 +107,18 @@ r.post('/orders', requireUser, rateLimit('orders', 20, 60_000), async (req, res)
 r.get('/orders/:code', requireUser, async (req, res) => {
   let order = await loadOrder(req.params.code, req.user);
   // Se o webhook atrasar, confere direto no Mercado Pago quando o cliente esta olhando o pedido.
-  if (order.status === 'pending' && mpEnabled()) {
+  if (order.status === 'pending' && order.payment_provider === 'infinitepay') {
+    try {
+      const transactionNsu = String(req.query.transaction_nsu || order.ip_transaction_nsu || '');
+      const slug = String(req.query.slug || order.ip_slug || '');
+      if (transactionNsu && slug) {
+        await checkInfinitePay(order, { transactionNsu, slug });
+        order = await loadOrder(req.params.code, req.user);
+      }
+    } catch (err) {
+      console.warn('[pedido] infinitepay', err.message);
+    }
+  } else if (order.status === 'pending' && mpEnabled()) {
     try {
       if (order.mp_payment_id) await syncPayment(order.mp_payment_id);
       else if (order.mp_preference_id) {
@@ -164,12 +181,17 @@ async function ownedPhotos(user, ids) {
   );
 }
 
-const downloadName = (p) => `tudoehfesta-${p.event_slug}-${p.id}${path.extname(p.original_path) || '.jpg'}`;
+const downloadName = (p) => `tudoehfesta-${p.event_slug}-${p.id}${path.extname(p.original_name || p.original_path) || '.jpg'}`;
 
 r.get('/download/:photoId', requireUser, async (req, res) => {
   const [p] = await ownedPhotos(req.user, [Number(req.params.photoId)]);
   if (!p) fail(404, 'Foto não encontrada nas suas compras.');
-  res.download(originalAbsPath(p.original_path), downloadName(p));
+  const stream = await originalStream(p.original_path);
+  const ext = path.extname(downloadName(p)).toLowerCase();
+  res.setHeader('Content-Type', ext === '.png' ? 'image/png' : ext === '.webp' ? 'image/webp' : 'image/jpeg');
+  res.setHeader('Content-Disposition', `attachment; filename="${downloadName(p)}"`);
+  stream.on('error', (err) => res.destroy(err));
+  stream.pipe(res);
 });
 
 // Baixa varias fotos num .zip sem comprimir (JPEG ja e comprimido): sai rapido e sem pesar no servidor.
@@ -191,8 +213,8 @@ r.get('/download-zip', requireUser, async (req, res) => {
   for (const p of photos) {
     const entry = new ZipPassThrough(downloadName(p));
     zip.add(entry);
+    const s = await originalStream(p.original_path);
     await new Promise((resolve, reject) => {
-      const s = fs.createReadStream(originalAbsPath(p.original_path));
       s.on('data', (c) => entry.push(new Uint8Array(c.buffer, c.byteOffset, c.byteLength)));
       s.on('end', () => {
         entry.push(new Uint8Array(0), true);
@@ -202,6 +224,20 @@ r.get('/download-zip', requireUser, async (req, res) => {
     });
   }
   zip.end();
+});
+
+// Webhook da InfinitePay: confere no payment_check antes de liberar. 400 faz a InfinitePay reenviar.
+r.post('/webhooks/infinitepay', async (req, res) => {
+  const b = req.body || {};
+  try {
+    const order = await db.one('select * from orders where code = $1', [String(b.order_nsu || '').toUpperCase()]);
+    if (!order) return res.sendStatus(200);
+    const after = await checkInfinitePay(order, { transactionNsu: b.transaction_nsu, slug: b.invoice_slug || b.slug });
+    res.sendStatus(after.status === 'paid' || order.status !== 'pending' ? 200 : 400);
+  } catch (err) {
+    console.error('[webhook infinitepay]', err.message);
+    res.sendStatus(400);
+  }
 });
 
 // Webhook do Mercado Pago: so usa o id; o status e conferido direto na API.

@@ -79,10 +79,10 @@ async function renderVariant(input, maxSide, quality, wm, outFile) {
 }
 
 // Gera vitrine e miniatura a partir do original com a marca d'agua atual do evento. Devolve a nova key.
-export async function renderPhoto({ eventId, photoId, originalPath, oldKey }) {
+export async function renderPhoto({ eventId, photoId, originalPath, oldKey, srcFile }) {
   const wm = await watermarkForEvent(eventId);
   const key = crypto.randomBytes(8).toString('hex');
-  const src = originalAbsPath(originalPath);
+  const src = srcFile || originalAbsPath(originalPath);
   await renderVariant(src, 1400, 78, wm, path.join(dirs.public, 'p', String(eventId), fileName(photoId, key)));
   await renderVariant(src, 480, 70, wm, path.join(dirs.public, 't', String(eventId), fileName(photoId, key)));
   if (oldKey !== key) await removeVariants(eventId, photoId, oldKey);
@@ -95,7 +95,7 @@ async function removeVariants(eventId, photoId, key) {
 
 export async function removePhotoFiles(eventId, photoId, originalPath, key) {
   await removeVariants(eventId, photoId, key);
-  if (originalPath) await fsp.unlink(path.join(dirs.originals, originalPath)).catch(() => {});
+  if (originalPath && !originalPath.startsWith('drive:')) await fsp.unlink(path.join(dirs.originals, originalPath)).catch(() => {});
 }
 
 // Imagens soltas (avatar, logo, marca d'agua): sem marca d'agua, mantendo transparencia.

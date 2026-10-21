@@ -8,7 +8,7 @@ import { Loading, ErrorBox } from '../../components/Layout.jsx';
 import { PageHead } from './Studio.jsx';
 
 const WM = { site: 'Padrão do site', photographer: 'Minha marca', none: 'Sem marca d’água' };
-const blank = () => ({ link: '', year: new Date().getFullYear(), category_id: '', price: '15,00', pack_price: '', auto_publish: true, hide_gallery: false, watermark_mode: 'site' });
+const blank = () => ({ link: '', year: new Date().getFullYear(), category_id: '', price: '15,00', pack_price: '', auto_publish: true, hide_gallery: false, watermark_mode: 'site', keep_in_drive: true });
 
 function SourceForm({ initial, onSubmit, submitLabel, withLink }) {
   const { categories = [] } = useSite();
@@ -49,6 +49,7 @@ function SourceForm({ initial, onSubmit, submitLabel, withLink }) {
       </div>
       <label className="check"><input type="checkbox" checked={f.auto_publish} onChange={set('auto_publish')} /><span><b>Publicar automaticamente</b> quando as fotos de um evento terminarem de ser processadas. Desmarcado, o evento fica em rascunho para você revisar.</span></label>
       <label className="check"><input type="checkbox" checked={f.hide_gallery} onChange={set('hide_gallery')} /><span><b>Não exibir as fotos dos eventos</b>: as fotos só aparecem para quem se encontrar pela selfie.</span></label>
+      <label className="check"><input type="checkbox" checked={f.keep_in_drive} onChange={set('keep_in_drive')} /><span><b>Guardar os originais só no Drive</b> (recomendado): o site guarda apenas as vitrines e busca o original no Drive na hora do download. Fotos vendidas são copiadas para o servidor, para o cliente nunca ficar sem. <span className="muted">Não apague nem mova as fotos do Drive.</span></span></label>
       <span className="tiny muted">Esses padrões valem para os eventos novos criados a partir da pasta. Depois dá para mudar cada evento individualmente.</span>
       {error && <div className="alert alert-bad">{error}</div>}
       <button className="btn btn-accent" style={{ alignSelf: 'flex-start' }} disabled={busy}>{busy ? 'Aguarde…' : submitLabel}</button>
@@ -82,7 +83,7 @@ function SourceCard({ s, reload }) {
       <div className="row between">
         <div className="row" style={{ gap: 10 }}>
           <FolderOpen size={22} color="var(--accent)" />
-          <div><b>{s.name || 'Pasta do Drive'}</b><div className="tiny muted">{s.year} · {money(s.price_cents)}/foto · {WM[s.watermark_mode]}{s.hide_gallery ? ' · só selfie' : ''}{s.auto_publish ? ' · publica sozinho' : ' · revisão manual'}</div></div>
+          <div><b>{s.name || 'Pasta do Drive'}</b><div className="tiny muted">{s.year} · {money(s.price_cents)}/foto · {WM[s.watermark_mode]}{s.hide_gallery ? ' · só selfie' : ''}{s.keep_in_drive ? ' · originais no Drive' : ' · originais no servidor'}{s.auto_publish ? ' · publica sozinho' : ' · revisão manual'}</div></div>
         </div>
         <span className="row small" style={{ gap: 6 }}><span className={`status-dot ${dot}`} /> {label}</span>
       </div>
@@ -114,7 +115,7 @@ function SourceCard({ s, reload }) {
       )}
       {edit && (
         <SourceForm
-          initial={{ year: s.year, category_id: s.category_id || '', price: centsToInput(s.price_cents), pack_price: centsToInput(s.pack_price_cents), auto_publish: s.auto_publish, hide_gallery: s.hide_gallery, watermark_mode: s.watermark_mode }}
+          initial={{ year: s.year, category_id: s.category_id || '', price: centsToInput(s.price_cents), pack_price: centsToInput(s.pack_price_cents), auto_publish: s.auto_publish, hide_gallery: s.hide_gallery, watermark_mode: s.watermark_mode, keep_in_drive: s.keep_in_drive }}
           submitLabel="Salvar padrões"
           onSubmit={async (f) => { await api(`/studio/drive/${s.id}`, { method: 'PUT', body: f }); setEdit(false); toast('Padrões salvos'); reload(); }}
         />

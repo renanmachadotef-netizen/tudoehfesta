@@ -439,6 +439,7 @@ function sourceFields(b) {
     auto_publish: b.auto_publish !== false,
     hide_gallery: !!b.hide_gallery,
     watermark_mode: WM_MODES.includes(b.watermark_mode) ? b.watermark_mode : 'site',
+    keep_in_drive: b.keep_in_drive !== false,
   };
 }
 
@@ -451,9 +452,9 @@ r.post('/drive', async (req, res) => {
   if (exists) fail(409, 'Essa pasta já está ligada.');
   const name = await folderName(folderId);
   await db.query(
-    `insert into drive_sources (photographer_id, folder_id, name, year, category_id, price_cents, pack_price_cents, auto_publish, hide_gallery, watermark_mode, last_status)
-     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'na fila')`,
-    [req.user.id, folderId, name, f.year, f.category_id, f.price_cents, f.pack_price_cents, f.auto_publish, f.hide_gallery, f.watermark_mode],
+    `insert into drive_sources (photographer_id, folder_id, name, year, category_id, price_cents, pack_price_cents, auto_publish, hide_gallery, watermark_mode, keep_in_drive, last_status)
+     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'na fila')`,
+    [req.user.id, folderId, name, f.year, f.category_id, f.price_cents, f.pack_price_cents, f.auto_publish, f.hide_gallery, f.watermark_mode, f.keep_in_drive],
   );
   res.json({ ok: true, name });
 });
@@ -473,8 +474,8 @@ r.put('/drive/:id', async (req, res) => {
   const f = sourceFields(req.body || {});
   await db.query(
     `update drive_sources set year = $2, category_id = $3, price_cents = $4, pack_price_cents = $5, auto_publish = $6,
-       hide_gallery = $7, watermark_mode = $8 where id = $1`,
-    [s.id, f.year, f.category_id, f.price_cents, f.pack_price_cents, f.auto_publish, f.hide_gallery, f.watermark_mode],
+       hide_gallery = $7, watermark_mode = $8, keep_in_drive = $9 where id = $1`,
+    [s.id, f.year, f.category_id, f.price_cents, f.pack_price_cents, f.auto_publish, f.hide_gallery, f.watermark_mode, f.keep_in_drive],
   );
   res.json({ ok: true });
 });
