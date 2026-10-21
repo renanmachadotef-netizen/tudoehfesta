@@ -128,6 +128,8 @@ async function tick() {
 }
 
 export function startJobs() {
+  // Sincronizacao interrompida por um reinicio (deploy) volta para a fila em vez de ficar presa.
+  db.query(`update drive_sources set last_status = 'na fila' where last_status = 'sincronizando'`).catch(() => {});
   setInterval(tick, 4000).unref();
   setTimeout(tick, 2000);
 }
