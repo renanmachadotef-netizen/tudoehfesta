@@ -388,6 +388,9 @@ export async function syncSource(sourceId) {
   let errors = 0;
   let remaining = 0;
   try {
+    // Importacao cortada no meio (servidor reiniciado durante um deploy) deixa a foto sem original:
+    // apaga para o arquivo ser importado de novo nesta rodada.
+    await db.query(`delete from photos where original_path = '' and drive_file_id is not null and created_at < now() - interval '10 minutes'`);
     const groups = await collectGroups(source);
     const known = new Set((await db.many(
       `select drive_file_id from photos where drive_file_id is not null union select drive_file_id from drive_skips where source_id = $1`,
