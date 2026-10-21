@@ -85,10 +85,10 @@ export function Header() {
           <NavLink to="/eventos">Eventos</NavLink>
           <NavLink to="/buscar">Buscar com selfie</NavLink>
           <NavLink to="/fotografos">Fotógrafos</NavLink>
-          <NavLink to="/seja-fotografo">Venda suas fotos</NavLink>
+          <NavLink to="/seja-fotografo" className="nav-extra">Venda suas fotos</NavLink>
         </nav>
         <div className="grow" />
-        <Link to="/buscar" className="btn btn-sm btn-accent hide-sm">
+        <Link to="/buscar" className="btn btn-sm btn-accent header-cta">
           <ScanFace size={16} /> Achar minhas fotos
         </Link>
         <Link to="/carrinho" className="icon-btn" aria-label="Carrinho">
