@@ -248,10 +248,11 @@ r.post('/webhooks/infinitepay', async (req, res) => {
 
 // Webhook do Mercado Pago: so usa o id; o status e conferido direto na API.
 r.post('/webhooks/mercadopago', async (req, res) => {
-  const id = req.body?.data?.id || req.query['data.id'] || (req.query.topic === 'payment' ? req.query.id : null);
+  // Orders: ?type=order&data.id=ORD... (corpo com action "order.processed"); Checkout Pro: type=payment.
   const type = req.body?.type || req.query.type || req.query.topic;
+  const id = req.body?.data?.id || req.query['data.id'] || (req.query.topic === 'payment' ? req.query.id : null);
   res.sendStatus(200);
-  if (id && (!type || type === 'payment')) {
+  if (id && (!type || type === 'order' || type === 'payment')) {
     syncPayment(String(id)).catch((err) => console.error('[webhook mp]', err.message));
   }
 });

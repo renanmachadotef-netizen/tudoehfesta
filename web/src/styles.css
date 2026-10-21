@@ -48,8 +48,8 @@ p { margin: 0; }
 ::selection { background: var(--accent); color: #fff; }
 
 .container { width: 100%; max-width: var(--max); margin: 0 auto; padding: 0 20px; }
-.section { padding: 56px 0; }
-.section-sm { padding: 32px 0; }
+.section { padding-top: 56px; padding-bottom: 56px; }
+.section-sm { padding-top: 32px; padding-bottom: 32px; }
 .stack { display: flex; flex-direction: column; gap: 16px; }
 .row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .between { justify-content: space-between; }
@@ -59,7 +59,7 @@ p { margin: 0; }
 .center { text-align: center; }
 .grow { flex: 1; }
 .hide-sm { }
-@media (max-width: 720px) { .hide-sm { display: none !important; } .section { padding: 40px 0; } }
+@media (max-width: 720px) { .hide-sm { display: none !important; } .section { padding-top: 40px; padding-bottom: 40px; } }
 
 /* Botoes */
 .btn {

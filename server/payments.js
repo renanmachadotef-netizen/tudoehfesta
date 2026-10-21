@@ -3,58 +3,81 @@ import { config } from './config.js';
 import { db } from './db.js';
 import { getSetting } from './pricing.js';
 
-// Mercado Pago: Pix direto (QR na tela) e Checkout Pro (cartao, redireciona).
-// Sem MP_ACCESS_TOKEN o site funciona em "Pix manual": mostra a chave Pix do site e o admin
-// confirma o pedido no painel quando o dinheiro cair.
+// Mercado Pago (aplicacao "Tudo Eh Festa Site", Checkout Transparente via API de Orders):
+//   Pix: POST /v1/orders -> QR Code (imagem + copia e cola) mostrado na propria pagina do pedido.
+//        Pago quando GET /v1/orders/{id} devolve status "processed" / "accredited".
+//   Cartao (so se a InfinitePay estiver desligada): Checkout Pro, redireciona ao Mercado Pago.
+// Sem MP_ACCESS_TOKEN o Pix cai na InfinitePay ou, sem nenhuma das duas, em "Pix manual".
 
 const MP = 'https://api.mercadopago.com';
+const TIMEOUT_MS = 10_000;
 export const mpEnabled = () => !!config.mpAccessToken;
 
+// HTTPS com certificado verificado (padrao do fetch), tempo limite e 1 nova tentativa em falha de rede/5xx.
+// A chave de idempotencia e a mesma nas tentativas: o Mercado Pago nao cria cobranca duplicada.
 async function mp(pathname, { method = 'GET', body, idempotency } = {}) {
-  const res = await fetch(MP + pathname, {
-    method,
-    headers: {
-      Authorization: `Bearer ${config.mpAccessToken}`,
-      'Content-Type': 'application/json',
-      ...(idempotency ? { 'X-Idempotency-Key': idempotency } : {}),
-    },
-    body: body ? JSON.stringify(body) : undefined,
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    const msg = data?.message || data?.error || `HTTP ${res.status}`;
-    throw new Error(`Mercado Pago: ${msg}`);
+  for (let attempt = 0; ; attempt++) {
+    let res;
+    try {
+      res = await fetch(MP + pathname, {
+        method,
+        headers: {
+          Authorization: `Bearer ${config.mpAccessToken}`,
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+          ...(idempotency ? { 'X-Idempotency-Key': idempotency } : {}),
+        },
+        body: body ? JSON.stringify(body) : undefined,
+        signal: AbortSignal.timeout(TIMEOUT_MS),
+      });
+    } catch (err) {
+      if (attempt < 1) continue;
+      throw new Error(`Mercado Pago indisponivel (${err.name === 'TimeoutError' ? 'sem resposta' : err.cause?.code || err.message})`);
+    }
+    if (res.status >= 500 && attempt < 1) continue;
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const detail = data?.errors?.[0]?.message || data?.message || data?.error || `HTTP ${res.status}`;
+      throw new Error(`Mercado Pago: ${detail}`);
+    }
+    return data;
   }
-  return data;
 }
 
 const notificationUrl = () =>
   config.publicUrl.startsWith('https://') ? `${config.publicUrl}/api/webhooks/mercadopago` : undefined;
+const reais = (cents) => (cents / 100).toFixed(2);
 
 export async function createPix(order) {
   const [first, ...rest] = String(order.buyer_name || 'Cliente').trim().split(/\s+/);
   const payer = { email: order.buyer_email, first_name: first, last_name: rest.join(' ') || first };
   const cpf = String(order.buyer_cpf || '').replace(/\D/g, '');
   if (cpf.length === 11) payer.identification = { type: 'CPF', number: cpf };
-  const data = await mp('/v1/payments', {
+  const data = await mp('/v1/orders', {
     method: 'POST',
-    idempotency: `pix-${order.code}-${crypto.randomBytes(4).toString('hex')}`,
+    idempotency: `pix-${order.code}-${crypto.randomBytes(6).toString('hex')}`,
     body: {
-      transaction_amount: order.total_cents / 100,
-      description: `Fotos Tudo Eh Festa - pedido ${order.code}`,
-      payment_method_id: 'pix',
+      type: 'online',
+      processing_mode: 'automatic',
       external_reference: order.code,
-      notification_url: notificationUrl(),
-      date_of_expiration: new Date(Date.now() + 30 * 60 * 1000).toISOString().replace('Z', '-00:00'),
+      total_amount: reais(order.total_cents),
       payer,
+      transactions: {
+        payments: [{
+          amount: reais(order.total_cents),
+          payment_method: { id: 'pix', type: 'bank_transfer' },
+          expiration_time: 'PT1H',
+        }],
+      },
     },
   });
-  const tx = data.point_of_interaction?.transaction_data || {};
+  const pm = data.transactions?.payments?.[0]?.payment_method || {};
+  if (!data.id || !pm.qr_code) throw new Error('Mercado Pago nao devolveu o QR Code do Pix');
   return {
-    paymentId: String(data.id),
-    qr: tx.qr_code,
-    qrBase64: tx.qr_code_base64,
-    expiresAt: data.date_of_expiration,
+    paymentId: String(data.id), // id da order (ORD...)
+    qr: pm.qr_code,
+    qrBase64: pm.qr_code_base64,
+    expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
   };
 }
 
@@ -106,22 +129,39 @@ export async function markOrderPaid(orderId, method) {
   });
 }
 
-// Confere o pagamento direto na API (nunca confia no corpo do webhook).
-export async function syncPayment(paymentId) {
-  if (!mpEnabled() || !paymentId) return null;
-  const p = await mp(`/v1/payments/${encodeURIComponent(paymentId)}`);
-  if (!p.external_reference) return null;
-  const order = await db.one('select * from orders where code = $1', [p.external_reference]);
-  if (!order) return null;
-  if (p.status === 'approved' && order.status === 'pending') {
-    if (Math.round(Number(p.transaction_amount) * 100) < order.total_cents) {
-      console.warn('[mp] valor pago menor que o pedido', order.code, p.transaction_amount);
-      return order;
-    }
-    await db.query('update orders set mp_payment_id = $2 where id = $1', [order.id, String(p.id)]);
-    return markOrderPaid(order.id, p.payment_method_id === 'pix' ? 'pix' : 'cartao');
+// Confere direto na API (nunca confia no corpo do webhook). Aceita id de order (ORD..., Pix) ou de
+// payment (numero, Checkout Pro do cartao).
+export async function syncPayment(id) {
+  if (!mpEnabled() || !id) return null;
+  id = String(id);
+  let ref;
+  let paid = false;
+  let paidCents = 0;
+  let method = 'pix';
+  if (/^ORD/i.test(id)) {
+    const o = await mp(`/v1/orders/${encodeURIComponent(id)}`);
+    ref = o.external_reference;
+    paid = o.status === 'processed' && o.status_detail === 'accredited';
+    paidCents = Math.round(Number(o.total_paid_amount || o.total_amount) * 100);
+    method = o.transactions?.payments?.[0]?.payment_method?.id === 'pix' ? 'pix' : 'cartao';
+  } else {
+    const p = await mp(`/v1/payments/${encodeURIComponent(id)}`);
+    ref = p.external_reference;
+    paid = p.status === 'approved';
+    paidCents = Math.round(Number(p.transaction_amount) * 100);
+    method = p.payment_method_id === 'pix' ? 'pix' : 'cartao';
   }
-  return order;
+  if (!ref) return null;
+  const order = await db.one('select * from orders where code = $1', [ref]);
+  if (!order || !paid || order.status !== 'pending') return order;
+  if (paidCents < order.total_cents) {
+    console.warn('[mp] valor pago menor que o pedido', order.code, paidCents, order.total_cents);
+    return order;
+  }
+  await db.query('update orders set mp_payment_id = $2 where id = $1', [order.id, id]);
+  const done = await markOrderPaid(order.id, method);
+  if (done) console.log('[mp] pedido pago', order.code, id, method);
+  return done || order;
 }
 
 export async function findPaymentsByReference(code) {

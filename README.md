@@ -64,7 +64,7 @@ Projeto `tudoehfesta` com dois serviços:
    - Variáveis: ver `.env.example` (`DATABASE_URL`, `SESSION_SECRET`, `PUBLIC_URL`, `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `MP_ACCESS_TOKEN`).
    - Domínio: `www.tudoehfesta.com` (e `tudoehfesta.com`) na porta 80.
 3. **InfinitePay** (opcional): `INFINITEPAY_HANDLE` = InfiniteTag sem o $ (`renan_machado`). O cliente paga na página da InfinitePay (Pix ou cartão até 12x) com itens por evento e dados pré-preenchidos, e volta para o pedido. Confirmação pelo webhook `/api/webhooks/infinitepay` (URL enviada em cada link), pela volta do cliente e por verificação periódica, sempre conferida no `payment_check`. A API recusa qualquer caractere fora do ASCII (acentos) em itens e no nome do comprador: o código converte antes de enviar. Pedidos não pagos são cancelados depois de 7 dias.
-4. **Mercado Pago**: em Suas integrações, crie a aplicação, copie o Access Token de produção para `MP_ACCESS_TOKEN` e configure o webhook (evento "Pagamentos") para `https://www.tudoehfesta.com/api/webhooks/mercadopago`. Mesmo sem webhook, a página do pedido confere o pagamento sozinha a cada 5 segundos.
+4. **Mercado Pago** (Pix com QR Code na própria página do pedido): aplicação "Tudo Eh Festa Site", Checkout Transparente via **API de Orders**. Access Token de produção em `MP_ACCESS_TOKEN`; webhook do evento **Order (Mercado Pago)** para `https://www.tudoehfesta.com/api/webhooks/mercadopago`. Mesmo sem webhook, a página do pedido confere o pagamento sozinha a cada 5 segundos.
 
 ## Armazenamento
 
