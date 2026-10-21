@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { db } from '../db.js';
 import { hashPassword, checkPassword, setSession, clearSession, requireUser } from '../auth.js';
 import { fail, cleanText, isEmail, rateLimit, uniqueSlug } from '../util.js';
+import { activity } from '../activity.js';
 
 const r = Router();
 
@@ -20,6 +21,7 @@ async function createUser({ name, email, password, phone }, role = 'customer') {
 
 r.post('/register', rateLimit('register', 10, 60_000), async (req, res) => {
   const u = await createUser(req.body);
+  activity('cliente', `Novo cadastro de cliente (#${u.id})`);
   setSession(res, u.id);
   res.json({ ok: true });
 });

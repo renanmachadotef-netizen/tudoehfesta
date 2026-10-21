@@ -1,6 +1,7 @@
 import { db, toBuffer } from './db.js';
 import { DIM, invalidateFaces } from './faces.js';
 import { getSetting, setSetting } from './pricing.js';
+import { activity, count } from './activity.js';
 
 // Monitoramento de rostos cadastrados pelos clientes.
 //   - Cada rosto novo indexado (faces.id > cursor) e comparado com os rostos cadastrados (user_faces).
@@ -44,6 +45,7 @@ async function loadProfiles(userId = null) {
 async function compare(faces, profiles) {
   const rerender = new Set();
   let blurred = 0;
+  let found = 0;
   for (const f of faces) {
     const fv = vec(f.descriptor);
     for (const p of profiles) {
@@ -52,11 +54,13 @@ async function compare(faces, profiles) {
       let best = Infinity;
       for (const d of p.descs) best = Math.min(best, dist(fv, d));
       if (best <= MATCH) {
-        await db.query(
+        const r = await db.query(
           `insert into user_matches (user_id, photo_id, distance) values ($1, $2, $3)
-           on conflict (user_id, photo_id) do update set distance = least(user_matches.distance, excluded.distance)`,
+           on conflict (user_id, photo_id) do update set distance = least(user_matches.distance, excluded.distance)
+           returning (xmax = 0) as fresh`,
           [p.userId, f.photo_id, best],
         );
+        if (r.rows[0]?.fresh) found++;
       }
       if (p.blur && best <= BLUR && !f.blurred_user_id) {
         await db.query('update faces set blurred_user_id = $2 where id = $1 and blurred_user_id is null', [f.id, p.userId]);
@@ -67,6 +71,11 @@ async function compare(faces, profiles) {
   }
   if (rerender.size) await db.query('update photos set needs_render = true where id = any($1::int[])', [[...rerender]]);
   if (blurred) invalidateFaces();
+  if (found) {
+    count('match', found);
+    activity('match', `${found} foto(s) nova(s) em "Encontradas para você" de clientes`);
+  }
+  if (blurred) activity('blur', `${blurred} rosto(s) borrado(s) a pedido de clientes`);
   return rerender.size;
 }
 
@@ -90,6 +99,7 @@ async function scanUser(userId) {
     }
   }
   await db.query('update users set needs_face_scan = false where id = $1', [userId]);
+  activity('rosto', `Varredura completa do rosto de um cliente concluída (#${userId})`);
 }
 
 export async function matchBatch() {

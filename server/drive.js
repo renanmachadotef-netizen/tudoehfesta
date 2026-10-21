@@ -10,6 +10,7 @@ import { dirs, fileSha, saveOriginal, renderPhoto } from './storage.js';
 import { uniqueSlug } from './util.js';
 import { detectFacesOnServer } from './facepool.js';
 import { encodeDescriptor, invalidateFaces } from './faces.js';
+import { activity, count, progress } from './activity.js';
 
 // Importacao do Google Drive. Dois tipos de pasta ligada:
 //   kind 'year' (pasta geral: um ano so, ou a raiz 'tudoehfesta' com 2003..2026 dentro):
@@ -24,7 +25,7 @@ import { encodeDescriptor, invalidateFaces } from './faces.js';
 // da conta) ou chave de API (GOOGLE_API_KEY; a pasta precisa estar como "qualquer pessoa com o link").
 
 const API = 'https://www.googleapis.com/drive/v3';
-const SYNC_MINUTES = Math.max(2, Number(process.env.DRIVE_SYNC_MINUTES) || 10);
+export const SYNC_MINUTES = Math.max(2, Number(process.env.DRIVE_SYNC_MINUTES) || 10);
 const FILES_PER_RUN = 40;
 const MIN_SIDE = 600;
 const IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
@@ -272,7 +273,10 @@ async function eventForGroup(source, g) {
      values ($1, $2, $3, $4, $5, $6, $7, $8, 'draft', $9, $10, $11, $12, $13, 'pool', $14) returning id, event_date`,
     [slug, parsed.title, source.category_id, source.photographer_id, date, parsed.city, source.price_cents, source.pack_price_cents,
       source.hide_gallery, source.watermark_mode, g.folder.id, source.id, source.auto_publish, folderPath],
-  ).then((ev) => ({ ...ev, tag: g.folder.name }));
+  ).then((ev) => {
+    activity('pasta', `Nova pasta no acervo: ${folderPath}`);
+    return { ...ev, tag: g.folder.name };
+  });
 }
 
 async function skip(source, file, reason) {
@@ -378,6 +382,7 @@ export async function syncSource(sourceId) {
   const source = await db.one('select * from drive_sources where id = $1', [sourceId]);
   if (!source) return;
   await db.query(`update drive_sources set last_status = 'sincronizando', last_error = null where id = $1`, [source.id]);
+  progress.sync = { source: source.name, started: Date.now(), phase: 'lendo as pastas do Drive', total: 0, done: 0, imported: 0, skipped: 0, folder: null };
   let imported = 0;
   let skipped = 0;
   let errors = 0;
@@ -389,6 +394,9 @@ export async function syncSource(sourceId) {
       [source.id],
     )).map((r) => r.drive_file_id));
     let budget = FILES_PER_RUN;
+    const pendingAll = groups.reduce((n, g) => n + g.files.filter((f) => !known.has(f.id)).length, 0);
+    progress.sync = { ...progress.sync, phase: 'importando', total: Math.min(pendingAll, FILES_PER_RUN), pending_all: pendingAll };
+    if (pendingAll) activity('drive', `"${source.name}": ${pendingAll} fotos novas encontradas no Drive`);
     for (const g of groups) {
       const fresh = g.files.filter((f) => !known.has(f.id)).sort((a, b) => a.name.localeCompare(b.name, 'pt', { numeric: true }));
       if (!fresh.length) continue;
@@ -397,6 +405,9 @@ export async function syncSource(sourceId) {
         continue;
       }
       const event = await eventForGroup(source, g);
+      const folderPath = [...g.path, g.folder.name].join(' / ');
+      progress.sync.folder = folderPath;
+      const before = imported;
       for (const file of fresh) {
         if (budget <= 0) {
           remaining++;
@@ -404,12 +415,21 @@ export async function syncSource(sourceId) {
         }
         budget--;
         try {
-          (await importFile(source, event, file)) === 'ok' ? imported++ : skipped++;
+          if ((await importFile(source, event, file)) === 'ok') {
+            imported++;
+            count('import');
+          } else {
+            skipped++;
+            count('skip');
+          }
         } catch (err) {
           errors++;
           console.error('[drive]', file.name, err.message);
+          activity('erro', `Drive: ${file.name}: ${err.message}`);
         }
+        Object.assign(progress.sync, { done: progress.sync.done + 1, imported, skipped });
       }
+      if (imported > before) activity('import', `+${imported - before} fotos de ${folderPath}`);
     }
     const status = remaining
       ? `continuando: ${imported} importadas agora, faltam ${remaining}`
@@ -421,7 +441,12 @@ export async function syncSource(sourceId) {
     );
   } catch (err) {
     console.error('[drive] fonte', source.id, err.message);
+    activity('erro', `Drive "${source.name}": ${err.message}`);
     await db.query(`update drive_sources set last_status = 'erro', last_error = $2, last_sync_at = now() where id = $1`, [source.id, err.message]);
+  }
+  progress.sync = null;
+  if (imported || skipped || errors) {
+    activity('drive', `"${source.name}": ${imported} importadas, ${skipped} recusadas${errors ? `, ${errors} com erro` : ''}${remaining ? `, faltam ${remaining}` : ''}`);
   }
   return { imported, skipped, errors, remaining };
 }

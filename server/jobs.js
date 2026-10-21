@@ -6,6 +6,7 @@ import { encodeDescriptor, invalidateFaces } from './faces.js';
 import { syncDueSources } from './drive.js';
 import { pollPendingInfinitePay, checkInfinitePay } from './infinitepay.js';
 import { matchBatch, blurBoxesFor } from './matching.js';
+import { activity, count } from './activity.js';
 
 // Fila em segundo plano guardada no proprio banco (sobrevive a reinicios):
 //   photos.needs_render -> refazer vitrine/miniatura (marca d'agua mudou, foto importada)
@@ -22,8 +23,10 @@ async function renderBatch() {
       const blurBoxes = await blurBoxesFor(p.id);
       const key = await withOriginal(p.original_path, (srcFile) => renderPhoto({ eventId: p.event_id, photoId: p.id, oldKey: p.key, srcFile, blurBoxes }));
       await db.query('update photos set key = $2, needs_render = false where id = $1', [p.id, key]);
+      count('render');
     } catch (err) {
       console.error('[vitrine] foto', p.id, err.message);
+      activity('erro', `Prévia da foto #${p.id}: ${err.message}`);
       await db.query('update photos set needs_render = false where id = $1', [p.id]);
     }
   }
@@ -42,7 +45,10 @@ async function facesBatch() {
       faces = await withOriginal(p.original_path, (file) => detectFacesOnServer(file));
     } catch (err) {
       console.error('[rostos] foto', p.id, err.message);
+      activity('erro', `Rostos da foto #${p.id}: ${err.message}`);
     }
+    count('scan');
+    count('faces', Math.min(faces.length, 60));
     await db.tx(async (t) => {
       await t.query('delete from faces where photo_id = $1', [p.id]);
       for (const f of faces.slice(0, 60)) {
@@ -64,12 +70,14 @@ async function copyBatch() {
       if (isDriveOriginal(p.original_path)) {
         const rel = await copyToServer(p.event_id, p.id, p.original_path, p.original_name);
         await db.query('update photos set original_path = $2, needs_copy = false where id = $1', [p.id, rel]);
+        activity('copia', `Original vendido copiado do Drive para o servidor (foto #${p.id})`);
       } else {
         await db.query('update photos set needs_copy = false where id = $1', [p.id]);
       }
     } catch (err) {
       // Continua marcada: tenta de novo na proxima volta (Drive fora do ar, por exemplo).
       console.error('[copia] foto', p.id, err.message);
+      activity('erro', `Cópia do original #${p.id}: ${err.message}`);
     }
   }
   return rows.length;
@@ -88,6 +96,7 @@ async function expirePending() {
     }
     await db.query(`update orders set status = 'cancelled' where id = $1 and status = 'pending'`, [o.id]);
     console.log('[pedido] cancelado por falta de pagamento (7 dias):', o.code);
+    activity('pedido', `Pedido ${o.code} cancelado: 7 dias sem pagamento`);
   }
 }
 
@@ -100,9 +109,12 @@ async function autoPublish() {
         and not exists (select 1 from photos p where p.event_id = e.id and (p.needs_faces or p.needs_render))
         and not exists (select 1 from drive_sources s where s.id = e.drive_source_id
                          and (s.last_status = 'sincronizando' or s.last_status like 'continuando%'))
-      returning e.id, e.title`,
+      returning e.id, e.title, e.kind`,
   );
-  for (const r of rows) console.log('[publicacao] evento publicado automaticamente:', r.title);
+  for (const r of rows) {
+    console.log('[publicacao] evento publicado automaticamente:', r.title);
+    activity('publicacao', r.kind === 'pool' ? `Acervo liberado para a busca por selfie: ${r.title}` : `Evento publicado: ${r.title}`);
+  }
   if (rows.length) invalidateFaces();
 }
 
@@ -122,6 +134,7 @@ async function tick() {
     if (!rendered && !indexed) await syncDueSources();
   } catch (err) {
     console.error('[fila]', err);
+    activity('erro', `Fila: ${err.message}`);
   } finally {
     busy = false;
   }

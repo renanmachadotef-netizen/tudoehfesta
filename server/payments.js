@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import { config } from './config.js';
 import { db } from './db.js';
 import { getSetting } from './pricing.js';
+import { activity } from './activity.js';
 
 // Mercado Pago (aplicacao "Tudo Eh Festa Site", Checkout Transparente via API de Orders):
 //   Pix: POST /v1/orders -> QR Code (imagem + copia e cola) mostrado na propria pagina do pedido.
@@ -164,7 +165,10 @@ export async function syncPayment(id) {
   }
   await db.query('update orders set mp_payment_id = $2 where id = $1', [order.id, id]);
   const done = await markOrderPaid(order.id, method);
-  if (done) console.log('[mp] pedido pago', order.code, id, method);
+  if (done) {
+    console.log('[mp] pedido pago', order.code, id, method);
+    activity('venda', `Pedido ${order.code} pago (${method}, Mercado Pago) · R$ ${(order.total_cents / 100).toFixed(2).replace('.', ',')}`);
+  }
   return done || order;
 }
 

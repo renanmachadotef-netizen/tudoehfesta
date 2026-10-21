@@ -376,3 +376,24 @@ details.faq p { margin-top: 10px; color: var(--ink-2); }
 .acervo-thumbs img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .acervo-sold { position: absolute; left: 4px; bottom: 4px; font-size: 10.5px; font-weight: 600; padding: 1px 6px; border-radius: 99px; background: var(--ok); color: #fff; }
 @media (max-width: 560px) { .acervo-cover { width: 72px; height: 54px; } }
+
+/* Admin "Ao vivo" */
+.live-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--ok); display: inline-block; flex: none; animation: live-pulse 1.6s ease-in-out infinite; }
+@keyframes live-pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(19,138,74,.45); } 50% { box-shadow: 0 0 0 6px rgba(19,138,74,0); } }
+.live-now { border-left: 4px solid var(--accent); }
+.live-bar { height: 8px; border-radius: 99px; background: var(--surface-2); overflow: hidden; }
+.live-bar i { display: block; height: 100%; background: var(--accent); border-radius: 99px; transition: width .6s ease; }
+.live-grid { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+.live-feed { list-style: none; margin: 0; padding: 0; max-height: 640px; overflow-y: auto; display: flex; flex-direction: column; }
+.live-feed li { display: grid; grid-template-columns: 64px 92px 1fr; gap: 8px; align-items: baseline; padding: 7px 0; border-top: 1px solid var(--line); font-size: 13.5px; }
+.live-feed time { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 12.5px; }
+.lf-tag { font-size: 11.5px; font-weight: 650; padding: 1px 7px; border-radius: 99px; background: var(--surface-2); justify-self: start; }
+.lf-text { min-width: 0; overflow-wrap: anywhere; }
+.lf-cliente .lf-tag { background: #e8f0fe; color: #1a56c4; }
+.lf-venda .lf-tag { background: var(--ok-soft); color: var(--ok); }
+.lf-erro .lf-tag { background: var(--bad-soft); color: var(--bad); }
+.live-thumbs { display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px; }
+.live-thumbs div { aspect-ratio: 1; border-radius: 6px; overflow: hidden; background: var(--surface-2); }
+.live-thumbs img { width: 100%; height: 100%; object-fit: cover; display: block; }
+@media (max-width: 980px) { .live-grid { grid-template-columns: 1fr; } }
+@media (max-width: 560px) { .live-feed li { grid-template-columns: 58px 1fr; } .live-feed li .lf-text { grid-column: 1 / -1; } .live-thumbs { grid-template-columns: repeat(4, 1fr); } }

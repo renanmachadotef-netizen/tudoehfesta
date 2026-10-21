@@ -1,15 +1,19 @@
 import crypto from 'node:crypto';
+import fsp from 'node:fs/promises';
+import os from 'node:os';
 import { Router } from 'express';
 import multer from 'multer';
 import { db } from '../db.js';
+import { config } from '../config.js';
+import { activity, recentActivity, progress, rate, startedAt } from '../activity.js';
 import { requireAdmin, hashPassword } from '../auth.js';
 import { getSetting, setSetting } from '../pricing.js';
 import { markOrderPaid, mpEnabled, paymentOptions } from '../payments.js';
-import { dirs, storeAsset, removePhotoFiles } from '../storage.js';
+import { dirs, storeAsset, removePhotoFiles, thumbUrl } from '../storage.js';
 import { invalidateFaces } from '../faces.js';
 import { normalizeWatermark, watermarkPreview, clearWatermarkCache } from '../watermark.js';
 import { queueStatus } from '../jobs.js';
-import { driveInfo } from '../drive.js';
+import { driveInfo, SYNC_MINUTES } from '../drive.js';
 import { EVENT_CARD, EVENT_JOINS, eventCard } from './public.js';
 import { fail, cleanText, slugify, photographerBalance } from '../util.js';
 
@@ -163,6 +167,7 @@ r.post('/events/:id/purge', async (req, res) => {
   });
   for (const p of photos) await removePhotoFiles(ev.id, p.id, p.original_path, p.key);
   invalidateFaces();
+  activity('exclusao', `Excluído do site: ${ev.title} (${photos.length} fotos)`);
   res.json({ ok: true, photos: photos.length, orders: removed });
 });
 
@@ -308,6 +313,67 @@ r.post('/watermark/preview', async (req, res) => {
 
 r.get('/system', async (_req, res) => {
   res.json({ drive: driveInfo(), queue: await queueStatus() });
+});
+
+// Painel "Ao vivo": o que o servidor esta fazendo agora (atualizado a cada poucos segundos pela tela).
+r.get('/live', async (_req, res) => {
+  const cursor = Number(await getSetting('match_cursor', 0)) || 0;
+  const [queue, extra, totals, sources, recentPhotos, orders, lastOrders, disk] = await Promise.all([
+    queueStatus(),
+    db.one(
+      `select (select count(*) from photos where needs_copy)::int as copy,
+              (select count(*) from users where needs_face_scan)::int as face_scans,
+              (select count(*) from faces where id > $1)::int as match_backlog`,
+      [cursor],
+    ),
+    db.one(
+      `select (select count(*) from photos where key is not null)::int as photos,
+              (select count(*) from faces)::int as faces,
+              (select count(*) from events where kind = 'pool')::int as pool_groups,
+              (select count(*) from events where kind = 'event')::int as events,
+              (select count(*) from users where role = 'customer')::int as customers,
+              (select count(distinct user_id) from user_faces)::int as face_users,
+              (select count(*) from users where blur_me)::int as blur_users,
+              (select count(*) from user_matches where created_at > now() - interval '24 hours')::int as matches_24h,
+              (select count(*) from photos where created_at > now() - interval '24 hours')::int as photos_24h,
+              (select coalesce(sum(bytes), 0) from photos where original_path not like 'drive:%')::bigint as server_originals_bytes`,
+    ),
+    db.many(
+      `select s.id, s.name, s.kind, s.active, s.last_status, s.last_error, s.last_sync_at, e.title as event_title,
+              (select count(*) from photos p join events ev on ev.id = p.event_id where ev.drive_source_id = s.id or ev.id = s.event_id)::int as photos,
+              (select count(*) from drive_skips k where k.source_id = s.id)::int as skipped
+         from drive_sources s left join events e on e.id = s.event_id order by s.kind desc, s.id`,
+    ),
+    db.many(
+      `select p.id, p.event_id, p.key, p.created_at, p.faces_count, e.title as event_title, e.kind
+         from photos p join events e on e.id = p.event_id where p.key is not null order by p.id desc limit 24`,
+    ),
+    db.one(
+      `select count(*) filter (where created_at::date = current_date)::int as today,
+              count(*) filter (where status = 'paid' and paid_at::date = current_date)::int as paid_today,
+              coalesce(sum(total_cents) filter (where status = 'paid' and paid_at::date = current_date), 0)::int as paid_today_cents,
+              count(*) filter (where status = 'pending')::int as pending
+         from orders`,
+    ),
+    db.many(
+      `select o.code, o.status, o.total_cents, o.payment_method, o.payment_provider, o.created_at, o.paid_at, split_part(u.name, ' ', 1) as buyer,
+              (select count(*) from order_items oi where oi.order_id = o.id)::int as items
+         from orders o join users u on u.id = o.user_id order by o.created_at desc limit 6`,
+    ),
+    fsp.statfs(config.dataDir).then((s) => ({ total: s.blocks * s.bsize, free: s.bavail * s.bsize })).catch(() => null),
+  ]);
+  const mem = process.memoryUsage();
+  res.json({
+    now: new Date().toISOString(),
+    server: { uptime_s: Math.round((Date.now() - startedAt) / 1000), rss: mem.rss, load: os.loadavg(), cpus: os.cpus().length, disk },
+    drive: { ...driveInfo(), sync_minutes: SYNC_MINUTES, running: progress.sync, sources },
+    queue: { ...queue, ...extra },
+    rates: Object.fromEntries(['import', 'skip', 'render', 'scan', 'faces', 'match'].map((k) => [k, { m10: rate(k, 10), m60: rate(k, 60) }])),
+    totals: { ...totals, server_originals_bytes: Number(totals.server_originals_bytes) },
+    orders: { ...orders, last: lastOrders },
+    recentPhotos: recentPhotos.map((p) => ({ id: p.id, thumb: thumbUrl(p.event_id, p.id, p.key), event_title: p.event_title, kind: p.kind, faces: p.faces_count, created_at: p.created_at })),
+    activity: recentActivity(150),
+  });
 });
 
 export default r;

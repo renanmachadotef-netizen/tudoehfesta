@@ -10,6 +10,7 @@ import { blurredOriginal } from '../storage.js';
 import { blurBoxesFor } from '../matching.js';
 import { photoOut } from './public.js';
 import { fail, orderCode, cleanText, rateLimit } from '../util.js';
+import { activity } from '../activity.js';
 
 const r = Router();
 
@@ -87,6 +88,7 @@ r.post('/orders', requireUser, rateLimit('orders', 20, 60_000), async (req, res)
     }
     return o;
   });
+  activity('pedido', `Novo pedido ${order.code}: ${priced.items.length} foto(s) · R$ ${(order.total_cents / 100).toFixed(2).replace('.', ',')} (${payMethod})`);
 
   let redirect = null;
   try {

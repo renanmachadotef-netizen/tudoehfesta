@@ -4,6 +4,7 @@ import { requireUser } from '../auth.js';
 import { encodeDescriptor } from '../faces.js';
 import { photoOut } from './public.js';
 import { fail, rateLimit } from '../util.js';
+import { activity } from '../activity.js';
 
 // Rosto do cliente (monitoramento + "borrar minhas imagens") e fotos encontradas para ele.
 // Guardamos so os vetores (128 numeros), com consentimento explicito; a selfie nunca sai do aparelho.
@@ -30,6 +31,7 @@ r.post('/me/face', rateLimit('face-register', 10, 60_000), async (req, res) => {
     for (const d of descs) await t.query('insert into user_faces (user_id, descriptor) values ($1, $2)', [req.user.id, d]);
     await t.query('update users set face_consent_at = now(), needs_face_scan = true where id = $1', [req.user.id]);
   });
+  activity('rosto', `Cliente #${req.user.id} cadastrou o rosto para monitoramento`);
   res.json({ ok: true });
 });
 
@@ -47,6 +49,7 @@ r.put('/me/privacy', async (req, res) => {
     if (!f.n) fail(400, 'Cadastre seu rosto primeiro para o sistema saber quem borrar.');
   }
   await db.query('update users set blur_me = $2, needs_face_scan = true where id = $1', [req.user.id, blur]);
+  activity('blur', `Cliente #${req.user.id} ${blur ? 'ligou' : 'desligou'} "borrar minhas imagens"`);
   res.json({ ok: true });
 });
 

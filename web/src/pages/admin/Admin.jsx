@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, NavLink, Navigate, Route, Routes } from 'react-router-dom';
-import { LayoutDashboard, Users, Receipt, Wallet, FolderOpen, Tag, Settings, UserCog, Camera, Stamp } from 'lucide-react';
+import { LayoutDashboard, Users, Receipt, Wallet, FolderOpen, Tag, Settings, UserCog, Camera, Stamp, Activity } from 'lucide-react';
 import { api, uploadWithProgress } from '../../lib/api.js';
 import { useApi, useSite, useTitle } from '../../lib/site.jsx';
 import { money, dateTimeBR, dateBR, compact, centsToInput } from '../../lib/format.js';
@@ -9,6 +9,7 @@ import { Bars, PageHead } from '../studio/Studio.jsx';
 import WatermarkEditor from '../../components/WatermarkEditor.jsx';
 import { StatusBadge } from '../Account.jsx';
 import { EVENT_STATUS } from '../studio/EventsList.jsx';
+import Live from './Live.jsx';
 
 function Dashboard() {
   const { data, loading, error } = useApi('/admin/dashboard');
@@ -436,6 +437,7 @@ export default function Admin() {
       <aside className="panel-side">
         <div className="side-title">Administração</div>
         <NavLink to="/admin" end><LayoutDashboard size={18} /> Visão geral</NavLink>
+        <NavLink to="/admin/ao-vivo"><Activity size={18} /> Ao vivo</NavLink>
         <NavLink to="/admin/pedidos"><Receipt size={18} /> Pedidos</NavLink>
         <NavLink to="/admin/fotografos"><Users size={18} /> Fotógrafos</NavLink>
         <NavLink to="/admin/saques"><Wallet size={18} /> Saques</NavLink>
@@ -450,6 +452,7 @@ export default function Admin() {
       <section className="panel-main">
         <Routes>
           <Route index element={<Dashboard />} />
+          <Route path="ao-vivo" element={<Live />} />
           <Route path="pedidos" element={<Orders />} />
           <Route path="fotografos" element={<Photographers />} />
           <Route path="saques" element={<Payouts />} />

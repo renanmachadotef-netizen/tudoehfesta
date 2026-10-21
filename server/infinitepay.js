@@ -1,6 +1,7 @@
 import { config } from './config.js';
 import { db } from './db.js';
 import { markOrderPaid } from './payments.js';
+import { activity } from './activity.js';
 
 // InfinitePay - Checkout Integrado (https://www.infinitepay.io/checkout-documentacao)
 //   POST /links          cria o link de pagamento hospedado (Pix ou cartao ate 12x) -> { url }
@@ -136,7 +137,10 @@ export async function checkInfinitePay(order, { transactionNsu, slug, receiptUrl
     order.id, Number(r.installments) || null, Number(r.paid_amount) || null,
   ]);
   const paid = await markOrderPaid(order.id, r.capture_method === 'pix' ? 'pix' : 'cartao');
-  if (paid) console.log('[infinitepay] pedido pago', order.code, r.capture_method, r.amount);
+  if (paid) {
+    console.log('[infinitepay] pedido pago', order.code, r.capture_method, r.amount);
+    activity('venda', `Pedido ${order.code} pago (${r.capture_method}, InfinitePay) · R$ ${(order.total_cents / 100).toFixed(2).replace('.', ',')}`);
+  }
   return paid || order;
 }
 
