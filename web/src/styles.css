@@ -535,3 +535,6 @@ a.lp-year:hover { color: var(--accent); }
 /* Aviso de cookies de marketing */
 .cookie-banner { position: fixed; left: 16px; right: 16px; bottom: 16px; z-index: 60; max-width: 720px; margin: 0 auto; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; padding: 14px 16px; border-radius: var(--radius); background: var(--paper); border: 1px solid var(--line); box-shadow: var(--shadow); }
 @media (max-width: 860px) { .cookie-banner { bottom: 76px; } }
+
+/* Busca por numero de peito */
+.bib-search { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 20px; padding: 18px 20px; border-radius: var(--radius); background: var(--paper); border: 1px solid var(--line); }

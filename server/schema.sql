@@ -345,3 +345,16 @@ create index if not exists event_team_user_idx on event_team (user_id);
 alter table events add column if not exists organizer_pct integer not null default 0;
 alter table order_items add column if not exists organizer_id integer references users(id);
 alter table order_items add column if not exists organizer_cents integer not null default 0;
+
+-- v17: protecao por desfoque da previa (so uma parte fica nitida) e busca por numero de peito
+alter table events add column if not exists protect_mode text not null default 'none';
+alter table events add column if not exists bib_search boolean not null default false;
+alter table photos add column if not exists bib_done boolean not null default false;
+create table if not exists photo_bibs (
+  photo_id integer not null references photos(id) on delete cascade,
+  event_id integer not null references events(id) on delete cascade,
+  bib text not null,
+  source text not null default 'ocr',
+  primary key (photo_id, bib)
+);
+create index if not exists photo_bibs_event_idx on photo_bibs (event_id, bib);

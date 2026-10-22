@@ -15,7 +15,7 @@ const r = Router();
 export const EVENT_CARD = `
   e.id, e.slug, e.title, e.event_date, e.city, e.venue, e.status, e.price_cents, e.pack_price_cents,
   e.discount_tiers, e.category_id, c.name as category_name, c.slug as category_slug, e.hide_gallery, e.watermark_mode, e.kind,
-  e.visibility, e.publish_at,
+  e.visibility, e.publish_at, e.protect_mode, e.bib_search,
   ph.display_name as photographer_name, ph.slug as photographer_slug, ph.avatar_path as photographer_avatar,
   (select count(*) from photos p where p.event_id = e.id and p.key is not null and not p.hidden)::int as photo_count,
   cv.id as cover_id, cv.key as cover_key`;
@@ -136,6 +136,21 @@ r.get('/events/:slug', async (req, res) => {
   }
   db.query('update events set views = views + 1 where id = $1', [row.id]).catch(() => {});
   res.json({ event: publicCard(row) });
+});
+
+// Busca por numero de peito dentro do evento.
+r.get('/events/:slug/bib/:num', rateLimit('bib', 60, 60_000), async (req, res) => {
+  const num = String(req.params.num || '').replace(/\D/g, '').replace(/^0+(?=\d)/, '');
+  const ev = await db.one(`select id, visibility, bib_search from events where slug = $1 and status = 'published'`, [req.params.slug]);
+  if (!ev || !ev.bib_search) fail(404, 'Busca por número não disponível neste evento.');
+  if (ev.visibility === 'password' && !(await unlocked(req, ev.id))) fail(403, 'Digite a senha do evento primeiro.');
+  if (num.length < 1 || num.length > 6) return res.json({ photos: [] });
+  const rows = await db.many(
+    `select p.id, p.event_id, p.width, p.height, p.key from photo_bibs b join photos p on p.id = b.photo_id
+      where b.event_id = $1 and ltrim(b.bib, '0') = $2 and p.key is not null and not p.hidden order by p.taken_at nulls last, p.id limit 500`,
+    [ev.id, num],
+  );
+  res.json({ photos: rows.map(photoOut) });
 });
 
 // Horarios com fotos (para os botoes do filtro por horario da galeria).

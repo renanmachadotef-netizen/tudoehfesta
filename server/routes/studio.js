@@ -6,7 +6,7 @@ import multer from 'multer';
 import { db } from '../db.js';
 import { config } from '../config.js';
 import { requirePhotographer, requireUser, hashPassword } from '../auth.js';
-import { dirs, saveOriginal, renderPhoto, photoSha, removePhotoFiles, storeAsset, movePhotoFiles } from '../storage.js';
+import { dirs, saveOriginal, renderPhoto, photoSha, removePhotoFiles, storeAsset, movePhotoFiles, PROTECT_MODES } from '../storage.js';
 import { normalizeWatermark, watermarkPreview, clearWatermarkCache } from '../watermark.js';
 import { driveInfo, parseFolderId, folderName, previewSource, ignoreWords } from '../drive.js';
 import { queueStatus } from '../jobs.js';
@@ -155,6 +155,8 @@ function eventFields(b) {
     hide_gallery: !!b.hide_gallery,
     watermark_mode: WM_MODES.includes(b.watermark_mode) ? b.watermark_mode : 'site',
     visibility: ['public', 'unlisted', 'password'].includes(b.visibility) ? b.visibility : 'public',
+    protect_mode: PROTECT_MODES.includes(b.protect_mode) ? b.protect_mode : 'none',
+    bib_search: !!b.bib_search,
     password: cleanText(b.password, 60) || null,
     // "Publicar automaticamente em" chega como data e hora de Brasilia (sem fuso).
     publish_at: /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(String(b.publish_at || '')) ? `${b.publish_at}:00-03:00` : null,
@@ -175,8 +177,8 @@ r.post('/events', async (req, res) => {
       f.pack_price_cents, f.discount_tiers, f.status, f.hide_gallery, f.watermark_mode],
   );
   if (f.visibility === 'password' && !f.password) fail(400, 'Defina a senha do evento.');
-  await db.query('update events set visibility = $2, password_hash = $3, publish_at = $4 where id = $1',
-    [ev.id, f.visibility, f.password ? await hashPassword(f.password) : null, f.publish_at]);
+  await db.query('update events set visibility = $2, password_hash = $3, publish_at = $4, protect_mode = $5, bib_search = $6 where id = $1',
+    [ev.id, f.visibility, f.password ? await hashPassword(f.password) : null, f.publish_at, f.protect_mode, f.bib_search]);
   res.json({ event: ev });
 });
 
@@ -197,7 +199,13 @@ r.get('/events/:id', async (req, res) => {
     );
     team = { max_photos: member.max_photos, upload_until: member.upload_until, organizer_pct: ev.organizer_pct, ...mine };
   }
-  res.json({ event: { ...eventCard(row), pricing: effectivePrice(row), role, team, organizer_pct: ev.organizer_pct }, queue: await queueStatus('p.event_id = $1', [ev.id]) });
+  const bib = ev.bib_search ? await db.one(
+    `select count(*) filter (where bib_done)::int as done, count(*)::int as total,
+            (select count(distinct photo_id) from photo_bibs where event_id = $1)::int as with_number
+       from photos where event_id = $1 and key is not null`,
+    [ev.id],
+  ) : null;
+  res.json({ event: { ...eventCard(row), pricing: effectivePrice(row), role, team, organizer_pct: ev.organizer_pct, bib }, queue: await queueStatus('p.event_id = $1', [ev.id]) });
 });
 
 r.put('/events/:id', async (req, res) => {
@@ -216,8 +224,11 @@ r.put('/events/:id', async (req, res) => {
       f.discount_tiers, f.status, f.hide_gallery, f.watermark_mode],
   );
   if (f.visibility === 'password' && !f.password && !ev.password_hash) fail(400, 'Defina a senha do evento.');
-  await db.query('update events set visibility = $2, password_hash = coalesce($3, password_hash), publish_at = $4 where id = $1',
-    [ev.id, f.visibility, f.password ? await hashPassword(f.password) : null, f.status === 'draft' ? f.publish_at : null]);
+  await db.query('update events set visibility = $2, password_hash = coalesce($3, password_hash), publish_at = $4, protect_mode = $5, bib_search = $6 where id = $1',
+    [ev.id, f.visibility, f.password ? await hashPassword(f.password) : null, f.status === 'draft' ? f.publish_at : null, f.protect_mode, f.bib_search]);
+  // Protecao da previa mudou: refaz as previas. (Busca por numero ligada: a fila le as fotos com bib_done = false.)
+  if ((ev.protect_mode || 'none') !== f.protect_mode) await db.query('update photos set needs_render = true where event_id = $1', [ev.id]);
+
   if (String(ev.event_date) !== f.event_date) {
     await db.query('update faces set year = $2 where event_id = $1', [ev.id, Number(f.event_date.slice(0, 4))]);
   }

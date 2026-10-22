@@ -114,13 +114,43 @@ export async function blurredOriginal(file, boxes) {
   return sharp(out).jpeg({ quality: 92, mozjpeg: true }).toBuffer();
 }
 
-async function renderVariant(input, maxSide, quality, wm, outFile, blurBoxes) {
+// Protecao da previa: a imagem toda desfocada e so uma area nitida (circulo, faixa, diagonal, metade
+// vertical ou horizontal), com borda suave. Um print da tela nao serve como a foto.
+export const PROTECT_MODES = ['none', 'circle', 'band', 'diagonal', 'vertical', 'horizontal'];
+function revealShape(mode, w, h) {
+  const m = Math.min(w, h);
+  if (mode === 'circle') return `<circle cx="${w / 2}" cy="${h / 2}" r="${m * 0.3}"/>`;
+  if (mode === 'band') return `<rect x="0" y="${h * 0.39}" width="${w}" height="${h * 0.22}"/>`;
+  if (mode === 'vertical') return `<rect x="${w * 0.25}" y="0" width="${w * 0.5}" height="${h}"/>`;
+  if (mode === 'horizontal') return `<rect x="0" y="${h * 0.25}" width="${w}" height="${h * 0.5}"/>`;
+  const t = m * 0.2; // diagonal: faixa do canto inferior esquerdo ao superior direito
+  return `<polygon points="0,${h - t} ${w - t},0 ${w},0 ${w},${t} ${t},${h} 0,${h}"/>`;
+}
+export async function protectPreview(buf, w, h, mode) {
+  if (!mode || mode === 'none' || !PROTECT_MODES.includes(mode)) return buf;
+  const feather = Math.max(6, Math.round(Math.min(w, h) / 60));
+  const mask = Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}"><defs><filter id="f"><feGaussianBlur stdDeviation="${feather}"/></filter></defs><g fill="#fff" filter="url(#f)">${revealShape(mode, w, h)}</g></svg>`);
+  const sharpPart = await sharp(buf).ensureAlpha().composite([{ input: mask, blend: 'dest-in' }]).png().toBuffer();
+  return sharp(buf).blur(Math.max(14, Math.round(Math.min(w, h) / 45))).composite([{ input: sharpPart }]).toBuffer();
+}
+const protectCache = new Map();
+async function protectForEvent(eventId) {
+  const hit = protectCache.get(eventId);
+  if (hit && Date.now() - hit.at < 10_000) return hit.mode;
+  const { db } = await import('./db.js');
+  const r = await db.one('select protect_mode from events where id = $1', [eventId]);
+  protectCache.set(eventId, { at: Date.now(), mode: r?.protect_mode || 'none' });
+  return r?.protect_mode || 'none';
+}
+
+async function renderVariant(input, maxSide, quality, wm, outFile, blurBoxes, protect = 'none') {
   const resized = await sharp(input)
     .rotate()
     .resize({ width: maxSide, height: maxSide, fit: 'inside', withoutEnlargement: true })
     .toBuffer({ resolveWithObject: true });
   await fsp.mkdir(path.dirname(outFile), { recursive: true });
-  const base = await blurFaces(resized.data, resized.info.width, resized.info.height, blurBoxes);
+  const faced = await blurFaces(resized.data, resized.info.width, resized.info.height, blurBoxes);
+  const base = await protectPreview(faced, resized.info.width, resized.info.height, protect);
   await sharp(base)
     .composite(await watermarkLayers(wm, resized.info.width, resized.info.height))
     .webp({ quality, effort: 4 })
@@ -133,14 +163,15 @@ export const privateFile = (photoId, userId, key, size) => path.join(dirs.privat
 // privateFor: [{ userId, boxes }] -> versoes particulares para quem pediu borrao (sem o rosto dele borrado).
 export async function renderPhoto({ eventId, photoId, originalPath, oldKey, srcFile, blurBoxes, privateFor = [] }) {
   const wm = await watermarkForEvent(eventId);
+  const protect = await protectForEvent(eventId);
   const key = crypto.randomBytes(8).toString('hex');
   const src = srcFile || originalAbsPath(originalPath);
-  await renderVariant(src, 1400, 78, wm, path.join(dirs.public, 'p', String(eventId), fileName(photoId, key)), blurBoxes);
+  await renderVariant(src, 1400, 78, wm, path.join(dirs.public, 'p', String(eventId), fileName(photoId, key)), blurBoxes, protect);
   await renderVariant(src, 480, 70, wm, path.join(dirs.public, 't', String(eventId), fileName(photoId, key)), blurBoxes);
   if (oldKey !== key) await removeVariants(eventId, photoId, oldKey);
   await fsp.rm(path.join(dirs.private, String(photoId)), { recursive: true, force: true });
   for (const v of privateFor) {
-    await renderVariant(src, 1400, 78, wm, privateFile(photoId, v.userId, key, 'p'), v.boxes);
+    await renderVariant(src, 1400, 78, wm, privateFile(photoId, v.userId, key, 'p'), v.boxes, protect);
     await renderVariant(src, 480, 70, wm, privateFile(photoId, v.userId, key, 't'), v.boxes);
   }
   return key;

@@ -14,7 +14,7 @@ import ArtEditor from './ArtEditor.jsx';
 import EventTeam from './EventTeam.jsx';
 import { EventCard } from '../../components/Photos.jsx';
 
-const blank = { title: '', event_date: new Date().toISOString().slice(0, 10), category_id: '', city: '', venue: '', description: '', price: '15,00', pack_price: '', discount_tiers: [{ min: 5, pct: 20 }], status: 'draft', hide_gallery: false, watermark_mode: 'site', visibility: 'public', password: '', publish_at: '' };
+const blank = { title: '', event_date: new Date().toISOString().slice(0, 10), category_id: '', city: '', venue: '', description: '', price: '15,00', pack_price: '', discount_tiers: [{ min: 5, pct: 20 }], status: 'draft', hide_gallery: false, watermark_mode: 'site', visibility: 'public', password: '', publish_at: '', protect_mode: 'none', bib_search: false };
 // Data e hora de Brasilia para o campo datetime-local (o servidor guarda com fuso).
 const toLocalInput = (iso) => (iso ? new Date(new Date(iso).getTime() - 3 * 3600e3).toISOString().slice(0, 16) : '');
 
@@ -101,6 +101,23 @@ function EventForm({ initial, onSaved }) {
         <div className="field"><span>Como os clientes encontram as fotos</span>
           <label className="check"><input type="radio" name="visibilidade" checked={!f.hide_gallery} onChange={() => setF({ ...f, hide_gallery: false })} /><span><b>Mostrar todas as fotos</b> <span className="muted">· galeria aberta + busca por selfie</span></span></label>
           <label className="check"><input type="radio" name="visibilidade" checked={!!f.hide_gallery} onChange={() => setF({ ...f, hide_gallery: true })} /><span><b><EyeOff size={14} style={{ verticalAlign: -2 }} /> Só por reconhecimento facial</b> <span className="muted">· cada pessoa vê só as fotos em que aparece</span></span></label>
+        </div>
+      </div>
+      <div className="grid-2">
+        <label className="field"><span>Proteção da prévia</span>
+          <select className="select" value={f.protect_mode || 'none'} onChange={set('protect_mode')}>
+            <option value="none">Sem desfoque · só a marca d’água</option>
+            <option value="circle">Círculo nítido no centro</option>
+            <option value="band">Faixa nítida no meio</option>
+            <option value="diagonal">Diagonal nítida</option>
+            <option value="vertical">Metade vertical nítida</option>
+            <option value="horizontal">Metade horizontal nítida</option>
+          </select>
+          <small>A foto ampliada aparece desfocada fora da área escolhida: dá para se reconhecer, mas um print não substitui a compra. Quem compra recebe a original inteira. Trocar refaz as prévias.</small>
+        </label>
+        <div className="field"><span>Busca por número de peito</span>
+          <label className="check"><input type="checkbox" checked={!!f.bib_search} onChange={(e) => setF({ ...f, bib_search: e.target.checked })} /><span><b>Ler os números de peito das fotos</b> <span className="muted">· para corridas, caminhadas e torneios: o atleta digita o número e acha as fotos dele</span></span></label>
+          <small>O servidor lê os números depois do envio (leva alguns segundos por foto).</small>
         </div>
       </div>
       <div className="card-flat stack">
@@ -434,6 +451,7 @@ export default function EventEditor() {
     description: event.description, price: centsToInput(event.price_cents), pack_price: centsToInput(event.pack_price_cents),
     discount_tiers: event.discount_tiers || [], status: event.status, hide_gallery: event.hide_gallery, watermark_mode: event.watermark_mode || 'site',
     visibility: event.visibility || 'public', password: '', has_password: event.visibility === 'password', publish_at: toLocalInput(event.publish_at),
+    protect_mode: event.protect_mode || 'none', bib_search: !!event.bib_search,
   } : blank;
 
   const remove = async () => {
@@ -467,6 +485,9 @@ export default function EventEditor() {
       </div>
       )}
 
+      {event.id && event.bib && (
+        <div className="alert small">Números de peito: <b>{event.bib.done}</b> de {event.bib.total} fotos lidas · <b>{event.bib.with_number}</b> com número encontrado.{event.bib.done < event.bib.total ? ' A leitura continua em segundo plano.' : ''}</div>
+      )}
       {event.id && event.status !== 'published' && photos.length > 0 && (
         <div className="alert alert-warn">Este evento ainda não aparece no site. Mude o status para <b>Publicado</b> quando terminar de enviar.</div>
       )}

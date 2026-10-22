@@ -7,6 +7,7 @@ import { syncDueSources } from './drive.js';
 import { pollPendingInfinitePay, checkInfinitePay } from './infinitepay.js';
 import { matchBatch, blurPlanFor } from './matching.js';
 import { activity, count, progress } from './activity.js';
+import { readBibs } from './bibs.js';
 
 // Fila em segundo plano guardada no proprio banco (sobrevive a reinicios):
 //   photos.needs_render -> refazer vitrine/miniatura (marca d'agua mudou, foto importada)
@@ -134,6 +135,31 @@ async function autoPublish() {
 }
 
 let busy = false;
+// Numero de peito: le as fotos dos eventos com a busca por numero ligada (depois dos rostos, que ajudam a
+// achar o peito). Duas por volta, so quando a fila de previas e rostos esta vazia.
+async function bibBatch() {
+  const rows = await db.many(
+    `select p.id, p.event_id, p.original_path from photos p join events e on e.id = p.event_id and e.bib_search
+      where not p.bib_done and p.key is not null and not p.needs_faces and p.original_path <> '' order by p.id limit 2`,
+  );
+  for (const p of rows) {
+    let bibs = [];
+    try {
+      const boxes = (await db.many('select box from faces where photo_id = $1 and box is not null', [p.id])).map((r) => r.box);
+      bibs = await withOriginal(p.original_path, (file) => readBibs(file, boxes));
+    } catch (err) {
+      console.error('[numero] foto', p.id, err.message);
+      activity('erro', `Número de peito da foto #${p.id}: ${err.message}`);
+    }
+    await db.tx(async (t) => {
+      for (const b of bibs) await t.query('insert into photo_bibs (photo_id, event_id, bib) values ($1, $2, $3) on conflict do nothing', [p.id, p.event_id, b]);
+      await t.query('update photos set bib_done = true where id = $1', [p.id]);
+    });
+    count('bib');
+  }
+  return rows.length;
+}
+
 async function tick() {
   if (busy) return;
   busy = true;
@@ -145,8 +171,11 @@ async function tick() {
     const indexed = await facesBatch();
     await matchBatch();
     await autoPublish();
-    // Fila vazia: hora de procurar fotos novas no Drive.
-    if (!rendered && !indexed) await syncDueSources();
+    // Fila vazia: numeros de peito e depois fotos novas no Drive.
+    if (!rendered && !indexed) {
+      const bibs = await bibBatch();
+      if (!bibs) await syncDueSources();
+    }
   } catch (err) {
     console.error('[fila]', err);
     activity('erro', `Fila: ${err.message}`);

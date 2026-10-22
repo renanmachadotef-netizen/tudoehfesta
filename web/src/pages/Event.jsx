@@ -117,6 +117,22 @@ export default function EventPage() {
     setPhotos((p) => ({ list: [...p.list, ...d.photos], more: d.more, loading: false }));
   };
 
+  const [bib, setBib] = useState('');
+  const searchBib = async (e) => {
+    e.preventDefault();
+    if (!bib.trim()) return;
+    setSearching(true);
+    try {
+      const d = await api(`/events/${slug}/bib/${encodeURIComponent(bib.trim())}`);
+      setMine(d.photos);
+      setTab('minhas');
+      if (!d.photos.length) toast(`Nenhuma foto com o número ${bib.trim()} ainda.`);
+    } catch (err) {
+      toast(err.message);
+    } finally {
+      setSearching(false);
+    }
+  };
   const search = async (selfie) => {
     setSearching(true);
     try {
@@ -176,6 +192,18 @@ export default function EventPage() {
         </div>
       </div>
 
+      {event.photo_count > 0 && event.bib_search && (
+        <form className="bib-search" onSubmit={searchBib}>
+          <label className="stack" style={{ gap: 4, flex: '1 1 220px' }}>
+            <b>Pelo número de peito</b>
+            <span className="small muted">Digite o número da sua inscrição.</span>
+          </label>
+          <div className="row" style={{ gap: 8, flexWrap: 'nowrap' }}>
+            <input className="input" inputMode="numeric" pattern="[0-9]*" maxLength={6} value={bib} onChange={(e) => setBib(e.target.value.replace(/\D/g, ''))} placeholder="Ex.: 4827" aria-label="Número de peito" style={{ width: 150, fontFamily: 'var(--mono)', fontSize: 20 }} />
+            <button className="btn btn-accent" disabled={searching || !bib}>Buscar</button>
+          </div>
+        </form>
+      )}
       {event.photo_count > 0 && (
         event.face_count > 0 ? (
           <SelfieSearch onSelfie={search} busy={searching} title="Ache suas fotos neste evento" subtitle={event.hide_gallery ? 'As fotos deste evento são protegidas. Tire uma selfie para ver as suas.' : 'Tire uma selfie e mostramos só as fotos em que você aparece neste evento.'} />
