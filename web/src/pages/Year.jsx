@@ -11,7 +11,7 @@ export default function YearPage() {
   const { years = [] } = useSite();
   useTitle(`Suas fotos de ${year}`);
   const events = useApi(`/events?year=${year}&limit=60`);
-  const { result, busy, run } = useFaceSearch({ scope: 'year', year });
+  const { result, busy, run, refine } = useFaceSearch({ scope: 'year', year });
   const info = years.find((y) => String(y.year) === String(year));
 
   return (
@@ -27,8 +27,8 @@ export default function YearPage() {
           <Link key={y.year} to={`/ano/${y.year}`} className={`chip${String(y.year) === String(year) ? ' active' : ''}`}>{y.year}</Link>
         ))}
       </div>
-      <SelfieSearch onSelfie={run} busy={busy} title={`Você em ${year}`} subtitle={`Uma selfie procura você em todas as fotos de ${year}.`} />
-      <div id="resultados"><FaceResults result={result} /></div>
+      <SelfieSearch onSelfie={run} busy={busy} title={`Você em ${year}`} subtitle={`Uma selfie procura você em todas as fotos de ${year}.`} scopeNote={`Procurando só nas fotos de ${year}`} />
+      <div id="resultados"><FaceResults result={result} refine={refine} /></div>
       {(events.loading || events.data?.events?.length > 0) && <h2>Eventos de {year}</h2>}
       {events.loading ? <EventGridSkeleton /> : events.data?.events?.length > 0 && (
         <div className="events-grid">{events.data.events.map((e) => <EventCard key={e.id} event={e} />)}</div>

@@ -521,3 +521,14 @@ details.faq p { margin-top: 10px; color: var(--ink-2); }
 .filters-search:focus-within { border-color: var(--accent); }
 .filters-search input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--ink); }
 @media (max-width: 900px) { .filters { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } .filters-search { grid-column: 1 / -1; } .filters .btn { grid-column: 1 / -1; } }
+
+/* Busca facial: onde procura e "sou eu" */
+.scope-note { display: inline-flex; align-items: center; gap: 6px; align-self: flex-start; margin-top: 6px; padding: 4px 10px; border-radius: 999px; background: rgba(255,255,255,.12); color: #fff; font-size: 12.5px; font-weight: 600; }
+.jitem .me { position: absolute; left: 8px; bottom: 8px; z-index: 2; display: inline-flex; align-items: center; gap: 4px; height: 26px; padding: 0 10px; border: 0; border-radius: 999px; background: rgba(255,255,255,.92); color: var(--ink); font-size: 12px; font-weight: 700; cursor: pointer; }
+.jitem .me[aria-pressed="true"] { background: var(--accent); color: #fff; }
+.jitem.picked { outline: 3px solid var(--accent); outline-offset: -3px; }
+.refine { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 14px 20px; padding: 16px 18px; background: var(--paper); border-radius: var(--radius); box-shadow: var(--shadow); border-left: 4px solid var(--accent); }
+.refine-seeds { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+.refine-seeds button { position: relative; width: 52px; height: 52px; padding: 0; border: 2px solid var(--accent); border-radius: 8px; overflow: hidden; cursor: pointer; background: var(--surface); }
+.refine-seeds img { width: 100%; height: 100%; object-fit: cover; }
+.refine-seeds svg { position: absolute; top: 2px; right: 2px; background: rgba(0,0,0,.65); color: #fff; border-radius: 999px; padding: 1px; }

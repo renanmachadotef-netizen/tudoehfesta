@@ -4,7 +4,7 @@ import { db } from '../db.js';
 import { checkPassword } from '../auth.js';
 import { config } from '../config.js';
 import { getSetting, priceCart, effectivePrice } from '../pricing.js';
-import { searchFaces, DIM, DEFAULT_THRESHOLD } from '../faces.js';
+import { searchFaces, seedDescriptors, DIM, DEFAULT_THRESHOLD } from '../faces.js';
 import { previewUrl, thumbUrl } from '../storage.js';
 import { paymentOptions } from '../payments.js';
 import { fail, rateLimit } from '../util.js';
@@ -255,8 +255,12 @@ r.post('/faces/search', rateLimit('faces', 40, 60_000), async (req, res) => {
     key = `event:${ev.id}`;
   }
   const threshold = Math.min(Math.max(Number(req.body.threshold) || DEFAULT_THRESHOLD, 0.35), 0.6);
-  const hits = await searchFaces(descriptors, key, threshold);
-  if (!hits.length) return res.json({ photos: [], events: [] });
+  // Fotos marcadas como "sou eu" entram como referencias extras (ate 12).
+  const seedIds = [...new Set((Array.isArray(req.body.seeds) ? req.body.seeds : []).map(Number).filter((n) => Number.isInteger(n) && n > 0))].slice(0, 12);
+  const seeds = await seedDescriptors(seedIds, descriptors, threshold);
+  const hits = await searchFaces([...descriptors, ...seeds.map((s) => s.descriptor)], key, threshold);
+  const seedsUsed = seeds.map((s) => s.photoId);
+  if (!hits.length) return res.json({ photos: [], events: [], seeds: seedsUsed });
   const ids = hits.map((h) => h.photoId);
   const rows = await db.many(
     `select p.id, p.event_id, p.width, p.height, p.key from photos p join events e on e.id = p.event_id and e.status = 'published'
@@ -267,7 +271,7 @@ r.post('/faces/search', rateLimit('faces', 40, 60_000), async (req, res) => {
   const photos = hits.filter((h) => byId.has(h.photoId)).map((h) => ({ ...photoOut(byId.get(h.photoId)), distance: Number(h.distance.toFixed(3)) }));
   const eventIds = [...new Set(photos.map((p) => p.event_id))];
   const events = (await db.many(`select ${EVENT_CARD} ${EVENT_JOINS} where e.id = any($1::int[]) order by e.event_date desc`, [eventIds])).map(publicCard);
-  res.json({ photos, events });
+  res.json({ photos, events, seeds: seedsUsed });
 });
 
 r.get('/photographers', async (_req, res) => {

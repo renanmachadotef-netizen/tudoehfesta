@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Camera, ImagePlus, ScanFace, ShieldCheck, X, SwitchCamera, UserPlus, Trash2 } from 'lucide-react';
+import { Camera, ImagePlus, ScanFace, ShieldCheck, X, SwitchCamera, UserPlus, Trash2, Search } from 'lucide-react';
 import { fileToCanvas, loadFaceApi, selfieDescriptor, selfieStore } from '../lib/faces.js';
 
 // Captura a selfie (camera ou arquivo), gera o vetor do rosto no aparelho e entrega ao pai.
 // onSelfie({ descriptor, preview }) e chamado quando ha selfie pronta. Por padrao a selfie vale so para esta busca
 // (troca facil para buscar um amigo); com "Lembrar esta selfie" ela fica na aba para outros anos e eventos.
-export default function SelfieSearch({ onSelfie, title = 'Encontre suas fotos com uma selfie', subtitle, busy, consentText, actionLabel = 'Buscar minhas fotos', readyTitle = 'Sua selfie está pronta', allowRemember = true }) {
+export default function SelfieSearch({ onSelfie, title = 'Encontre suas fotos com uma selfie', subtitle, scopeNote, busy, consentText, actionLabel = 'Buscar minhas fotos', readyTitle = 'Sua selfie está pronta', allowRemember = true }) {
   const [selfie, setSelfie] = useState(() => (allowRemember ? selfieStore.get() : null));
   const [remember, setRemember] = useState(() => allowRemember && !!selfieStore.get());
   const [consent, setConsent] = useState(() => allowRemember && !!selfieStore.get());
@@ -138,6 +138,7 @@ export default function SelfieSearch({ onSelfie, title = 'Encontre suas fotos co
                   ? 'Esta selfie vale só para esta busca. Com amigos? Use “Nova selfie” para procurar cada um.'
                   : 'Usamos sua selfie só neste aparelho.'}
           </p>
+          {scopeNote && <span className="scope-note"><Search size={13} /> {scopeNote}</span>}
         </div>
       </div>
 

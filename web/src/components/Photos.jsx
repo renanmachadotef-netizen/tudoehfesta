@@ -39,7 +39,7 @@ export function EventGridSkeleton({ n = 8 }) {
 }
 
 // Grade justificada: cada foto ocupa largura proporcional a sua proporcao, linhas com altura ~ uniforme.
-export function PhotoGrid({ photos, rowHeight = 220, owned, eventInfo }) {
+export function PhotoGrid({ photos, rowHeight = 220, owned, eventInfo, picked, onPick }) {
   const { items } = useCart();
   const inCart = new Set(items.map((i) => i.id));
   const [open, setOpen] = useState(-1);
@@ -55,12 +55,22 @@ export function PhotoGrid({ photos, rowHeight = 220, owned, eventInfo }) {
           return (
             <div
               key={p.id}
-              className={`jitem${selected ? ' selected' : ''}${isOwned ? ' owned' : ''}`}
+              className={`jitem${selected ? ' selected' : ''}${isOwned ? ' owned' : ''}${picked?.has(p.id) ? ' picked' : ''}`}
               style={{ flexGrow: ratio, flexBasis: `${ratio * h}px`, aspectRatio: ratio }}
               onClick={() => setOpen(i)}
               onContextMenu={(e) => e.preventDefault()}
             >
               <img src={p.thumb} alt="" loading="lazy" decoding="async" draggable="false" />
+              {onPick && (
+                <button
+                  className="me"
+                  aria-pressed={picked?.has(p.id) || false}
+                  title="Marque as fotos em que você aparece: elas ajudam a achar fotos de outras épocas"
+                  onClick={(e) => { e.stopPropagation(); onPick(p); }}
+                >
+                  {picked?.has(p.id) ? <><Check size={13} strokeWidth={3} /> Sou eu</> : 'Sou eu?'}
+                </button>
+              )}
               {!isOwned && (
                 <button
                   className="sel"

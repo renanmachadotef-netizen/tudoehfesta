@@ -58,6 +58,51 @@ async function loadScope(scope) {
 }
 
 // descriptors: lista de vetores (1 a 3 selfies). Devolve fotos ordenadas pela menor distancia.
+// "Sou eu nesta foto": o rosto da pessoa nas fotos que ela marcou vira referencia extra da busca
+// (ajuda a achar fotos de outras epocas, quando o rosto mudou). De cada foto marcada so entra o rosto
+// que bate com a selfie ou com outra referencia ja aceita: ninguem consegue usar isso para buscar outra pessoa.
+export async function seedDescriptors(photoIds, queries, threshold = DEFAULT_THRESHOLD) {
+  if (!photoIds.length) return [];
+  const rows = await db.many(
+    `select f.photo_id, f.descriptor from faces f
+       join photos p on p.id = f.photo_id and not p.hidden
+       join events e on e.id = f.event_id and e.status = 'published' and e.visibility <> 'password'
+      where f.photo_id = any($1::int[]) and f.blurred_user_id is null`,
+    [photoIds],
+  );
+  const byPhoto = new Map();
+  for (const r of rows) {
+    const b = toBuffer(r.descriptor);
+    const d = Float32Array.from(new Float32Array(b.buffer, b.byteOffset, DIM));
+    if (!byPhoto.has(r.photo_id)) byPhoto.set(r.photo_id, []);
+    byPhoto.get(r.photo_id).push(d);
+  }
+  const accepted = queries.map((q) => Float32Array.from(q));
+  const added = [];
+  const t2 = threshold * threshold;
+  const dist2 = (a, b) => {
+    let s = 0;
+    for (let k = 0; k < DIM; k++) { const d = a[k] - b[k]; s += d * d; }
+    return s;
+  };
+  // Encadeia: uma foto aceita pode validar outra (selfie de hoje -> foto de 2015 -> foto de 2008).
+  for (let progress = true; progress && byPhoto.size;) {
+    progress = false;
+    for (const [photoId, faces] of byPhoto) {
+      let best = null;
+      let bd = Infinity;
+      for (const f of faces) for (const q of accepted) { const d = dist2(f, q); if (d < bd) { bd = d; best = f; } }
+      if (bd <= t2) {
+        accepted.push(best);
+        added.push({ photoId, descriptor: best });
+        byPhoto.delete(photoId);
+        progress = true;
+      }
+    }
+  }
+  return added;
+}
+
 export async function searchFaces(descriptors, scope, threshold = DEFAULT_THRESHOLD, limit = 1000) {
   const queries = descriptors.map((d) => new Float32Array(d));
   const { photoIds, eventIds, data } = await loadScope(scope);
