@@ -501,8 +501,8 @@ details.faq p { margin-top: 10px; color: var(--ink-2); }
 }
 .home-cat::before { content: ""; position: absolute; inset: 0; z-index: -1; background: linear-gradient(180deg, rgba(0,0,0,.05) 0%, rgba(0,0,0,.72) 100%); }
 .home-cat:hover { transform: translateY(-2px); box-shadow: var(--shadow-hover); }
-.home-cat > svg { position: absolute; top: 16px; left: 18px; }
-.home-cat b { font-size: 21px; font-weight: 700; letter-spacing: -0.01em; }
+.home-cat > svg { margin-bottom: auto; flex: none; }
+.home-cat b { margin-top: 14px; line-height: 1.15; font-size: 21px; font-weight: 700; letter-spacing: -0.01em; }
 .home-cat span { display: inline-flex; align-items: center; gap: 6px; font-size: 13.5px; color: rgba(255,255,255,.85); }
 .home-cat-all { background: var(--accent); }
 .home-cat-all::before { background: none; }
