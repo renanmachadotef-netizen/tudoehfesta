@@ -91,7 +91,7 @@ export default function SearchPage() {
         <h1 style={{ fontSize: 'clamp(28px,4vw,42px)' }}>Encontre todas as suas fotos de uma vez</h1>
         <p className="muted">Uma selfie procura você em todo o acervo ou só no ano que você escolher.</p>
       </div>
-      <div className="chips">
+      <div className="chips chips-wrap">
         <button className={`chip${!year ? ' active' : ''}`} onClick={() => { setYear(''); reset(); }}>Todos os anos</button>
         {years.map((y) => (
           <button key={y.year} className={`chip${String(year) === String(y.year) ? ' active' : ''}`} onClick={() => { setYear(String(y.year)); reset(); }}>

@@ -83,7 +83,7 @@ export default function Home() {
             <h2 className="home-h2">Não sabe em qual evento está? Tire uma selfie.</h2>
             <p className="muted">O reconhecimento facial procura você em todas as fotos{years.length ? `, de ${years[years.length - 1].year} até hoje` : ''}. A selfie é analisada no seu aparelho e não é enviada a ninguém.</p>
             {years.length > 0 && (
-              <div className="chips" style={{ marginTop: 6 }}>
+              <div className="chips chips-wrap" style={{ marginTop: 6 }}>
                 {years.map((y) => <Link key={y.year} to={`/ano/${y.year}`} className="chip">Fotos de {y.year}</Link>)}
               </div>
             )}

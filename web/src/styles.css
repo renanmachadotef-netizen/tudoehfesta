@@ -197,6 +197,7 @@ p { margin: 0; }
 /* Chips */
 .chips { display: flex; gap: 8px; min-width: 0; max-width: 100%; overflow-x: auto; padding-bottom: 4px; scrollbar-width: none; }
 .chips::-webkit-scrollbar { display: none; }
+.chips-wrap { flex-wrap: wrap; overflow: visible; padding-bottom: 0; }
 .chip {
   flex: none; height: 36px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--line); background: var(--paper);
   display: inline-flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 550; cursor: pointer; white-space: nowrap;

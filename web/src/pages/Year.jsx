@@ -22,7 +22,7 @@ export default function YearPage() {
         <p className="muted">{info ? `${info.photos.toLocaleString('pt-BR')} fotos em ${year}. ` : ''}Tire uma selfie e veja todas as fotos do ano em que você aparece, de uma só vez.</p>
         <span className="small muted row" style={{ gap: 6 }}><Lock size={14} /> As fotos do ano não ficam expostas: cada pessoa vê apenas as fotos em que aparece.</span>
       </div>
-      <div className="chips">
+      <div className="chips chips-wrap">
         {years.map((y) => (
           <Link key={y.year} to={`/ano/${y.year}`} className={`chip${String(y.year) === String(year) ? ' active' : ''}`}>{y.year}</Link>
         ))}
