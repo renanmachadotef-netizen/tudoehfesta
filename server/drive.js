@@ -124,18 +124,20 @@ export async function ignoreWords() {
   const v = await getSetting('drive_ignore', null);
   return Array.isArray(v) ? v : DEFAULT_IGNORE;
 }
-const isIgnored = (name, words) => words.length > 0 && norm(name).split(/[^a-z0-9]+/).some((w) => w && words.includes(w));
+// Palavra do nome que fez a pasta ser ignorada (ou undefined).
+const ignoredBy = (name, words) => (words.length ? norm(name).split(/[^a-z0-9]+/).find((w) => w && words.includes(w)) : undefined);
+const isIgnored = (name, words) => !!ignoredBy(name, words);
 
-async function listImagesDeep(folderId, depth = 0, ignore = null) {
+async function listImagesDeep(folderId, depth = 0, ignore = null, path = []) {
   const items = await listChildren(folderId);
   const files = items.filter((f) => !isFolder(f) && f.mimeType?.startsWith('image/'));
   if (depth < 3) {
     for (const sub of items.filter(isFolder)) {
       if (ignore && isIgnored(sub.name, ignore.words)) {
-        ignore.folders.push(sub);
+        ignore.folders.push({ ...sub, path, word: ignoredBy(sub.name, ignore.words) });
         continue;
       }
-      files.push(...(await listImagesDeep(sub.id, depth + 1, ignore)));
+      files.push(...(await listImagesDeep(sub.id, depth + 1, ignore, [...path, sub.name])));
     }
   }
   return files;
@@ -235,7 +237,7 @@ const isImage = (f) => !isFolder(f) && f.mimeType?.startsWith('image/');
 async function collectGroups(source) {
   const ignore = { words: (await ignoreWords()).map(norm), folders: [] };
   if (source.kind === 'event') {
-    const one = [{ folder: { id: source.folder_id, name: source.name }, files: await listImagesDeep(source.folder_id, 0, ignore), path: [], isRoot: false, eventId: source.event_id }];
+    const one = [{ folder: { id: source.folder_id, name: source.name }, files: await listImagesDeep(source.folder_id, 0, ignore, [source.name]), path: [], isRoot: false, eventId: source.event_id }];
     one.ignored = ignore.folders;
     return one;
   }
@@ -244,7 +246,7 @@ async function collectGroups(source) {
     const items = await listChildren(folder.id);
     const images = items.filter(isImage);
     const subs = items.filter(isFolder).sort((a, b) => a.name.localeCompare(b.name, 'pt', { numeric: true }))
-      .filter((s) => !(isIgnored(s.name, ignore.words) && ignore.folders.push({ ...s, path: [...path, folder.name] })));
+      .filter((s) => !(isIgnored(s.name, ignore.words) && ignore.folders.push({ ...s, path: [...path, folder.name], word: ignoredBy(s.name, ignore.words) })));
     // Raiz, ano ("2026") e mes ("10") so organizam: fotos soltas nelas viram um grupo proprio,
     // mas as subpastas continuam sendo eventos separados.
     const organizer = depth === 0 || /^\d{4}$/.test(String(folder.name).trim()) || /^\d{1,2}$/.test(String(folder.name).trim());
@@ -252,7 +254,7 @@ async function collectGroups(source) {
       if (images.length) groups.push({ folder, files: images, path, isRoot: depth === 0 });
     } else if (images.length) {
       const files = [...images];
-      for (const s of subs) files.push(...(await listImagesDeep(s.id, depth + 1, ignore)));
+      for (const s of subs) files.push(...(await listImagesDeep(s.id, depth + 1, ignore, [...path, folder.name, s.name])));
       groups.push({ folder, files, path, isRoot: false });
       return;
     }
@@ -509,6 +511,8 @@ export async function syncSource(sourceId) {
       files: groups.reduce((n, g) => n + g.files.length, 0),
       pending: pendingAll,
       ignored: (groups.ignored || []).length,
+      // Quais pastas foram puladas (ate 500), para o painel listar.
+      ignored_list: (groups.ignored || []).slice(0, 500).map((f) => ({ name: f.name, path: (f.path || []).join(' / '), word: f.word || null })),
       years: [...byYear.values()].sort((a, b) => String(b.year).localeCompare(String(a.year))),
     };
     await db.query('update drive_sources set scan = $2::jsonb where id = $1', [source.id, JSON.stringify(scan)]);

@@ -532,3 +532,8 @@ details.faq p { margin-top: 10px; color: var(--ink-2); }
 .refine-seeds button { position: relative; width: 52px; height: 52px; padding: 0; border: 2px solid var(--accent); border-radius: 8px; overflow: hidden; cursor: pointer; background: var(--surface); }
 .refine-seeds img { width: 100%; height: 100%; object-fit: cover; }
 .refine-seeds svg { position: absolute; top: 2px; right: 2px; background: rgba(0,0,0,.65); color: #fff; border-radius: 999px; padding: 1px; }
+
+/* Ao vivo: pastas ignoradas */
+.kpi-btn { text-align: left; font: inherit; color: inherit; cursor: pointer; }
+.kpi-btn:hover { border-color: var(--accent); }
+.ignored-box { padding: 14px 16px; border-radius: var(--radius); background: var(--surface); }

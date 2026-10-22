@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Pause, Play, HardDrive, CheckCircle2, AlertTriangle, Images, ScanFace, ShoppingBag, Users, Server } from 'lucide-react';
+import { Pause, Play, HardDrive, CheckCircle2, AlertTriangle, Images, ScanFace, ShoppingBag, Users, Server, FolderX, ChevronDown, ChevronUp } from 'lucide-react';
 import { api } from '../../lib/api.js';
 import { money, compact } from '../../lib/format.js';
 import { Loading, ErrorBox } from '../../components/Layout.jsx';
@@ -79,6 +79,7 @@ function NowCard({ d, now }) {
 
 // Retrato da pasta raiz (ultima leitura do Drive): pastas e fotos por ano, quantas ja estao no site e quantas faltam.
 function DriveScan({ d, now }) {
+  const [showIgnored, setShowIgnored] = useState(false);
   const src = d.drive.sources.find((s) => s.scan && s.kind !== 'event');
   if (!src) return null;
   const sc = src.scan;
@@ -97,11 +98,16 @@ function DriveScan({ d, now }) {
         <span className="tiny muted">lida {ago(sc.at, now)}</span>
       </div>
       <div className="kpis">
-        <div className="kpi"><span>Pastas de evento</span><b>{sc.folders.toLocaleString('pt-BR')}</b><small>em {sc.years.length} ano(s){sc.ignored ? ` · ${sc.ignored} ignorada(s) pelo nome` : ''}</small></div>
+        <button type="button" className="kpi kpi-btn" onClick={() => setShowIgnored((v) => !v)} aria-expanded={showIgnored}>
+          <span className="row between" style={{ width: '100%' }}>Pastas de evento {showIgnored ? <ChevronUp size={15} /> : <ChevronDown size={15} />}</span>
+          <b>{sc.folders.toLocaleString('pt-BR')}</b>
+          <small>em {sc.years.length} ano(s) · {sc.ignored ? `${sc.ignored} ignorada(s) pelo nome: toque para ver` : 'nenhuma ignorada'}</small>
+        </button>
         <div className="kpi"><span>Fotos no Drive</span><b>{total.toLocaleString('pt-BR')}</b></div>
         <div className="kpi"><span>Já tratadas</span><b>{done.toLocaleString('pt-BR')}</b><small>{total ? Math.round((done / total) * 100) : 100}% (no site ou recusadas)</small></div>
         <div className="kpi accent"><span>Faltam</span><b>{pending.toLocaleString('pt-BR')}</b><small>{pending ? (etaTxt ? `previsão ${etaTxt} no ritmo atual` : 'aguardando a próxima rodada') : 'tudo em dia'}</small></div>
       </div>
+      {showIgnored && <IgnoredFolders sc={sc} />}
       <div className="live-bar"><i style={{ width: `${total ? Math.round((done / total) * 100) : 100}%` }} /></div>
       <div className="table-wrap"><table className="table">
         <thead><tr><th>Ano</th><th className="num">Pastas</th><th className="num">Fotos no Drive</th><th className="num">Tratadas</th><th className="num">Faltam</th><th style={{ width: '30%' }}></th></tr></thead>
@@ -117,6 +123,34 @@ function DriveScan({ d, now }) {
         })}</tbody>
       </table></div>
       <span className="tiny muted">Os números por ano são da leitura “{ago(sc.at, now)}” (o Drive é relido a cada rodada de importação); o total “Faltam” já desconta a rodada em andamento.</span>
+    </div>
+  );
+}
+
+// Pastas puladas pelo nome (ex.: "descartadas", "dsc", "site"): onde estao e qual palavra fez pular.
+function IgnoredFolders({ sc }) {
+  const list = sc.ignored_list;
+  return (
+    <div className="ignored-box stack" style={{ gap: 10 }}>
+      <div className="row between">
+        <b className="row" style={{ gap: 6 }}><FolderX size={16} /> Pastas ignoradas pelo nome</b>
+        <Link to="/painel/drive" className="small" style={{ textDecoration: 'underline' }}>Mudar as palavras ignoradas</Link>
+      </div>
+      {!sc.ignored ? (
+        <span className="small muted">Nenhuma pasta foi ignorada na última leitura.</span>
+      ) : !list ? (
+        <span className="small muted">{sc.ignored} pasta(s) ignorada(s). A lista com os nomes aparece depois da próxima leitura do Drive.</span>
+      ) : (
+        <>
+          <div className="table-wrap"><table className="table">
+            <thead><tr><th>Pasta</th><th>Onde está</th><th>Palavra</th></tr></thead>
+            <tbody>{list.map((f, i) => (
+              <tr key={i}><td><b>{f.name}</b></td><td className="small muted">{f.path || '—'}</td><td>{f.word ? <span className="badge">{f.word}</span> : '—'}</td></tr>
+            ))}</tbody>
+          </table></div>
+          <span className="tiny muted">As fotos dessas pastas (e das subpastas delas) não entram no site.{sc.ignored > list.length ? ` Mostrando ${list.length} de ${sc.ignored}.` : ''}</span>
+        </>
+      )}
     </div>
   );
 }
