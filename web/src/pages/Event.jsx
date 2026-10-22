@@ -14,7 +14,7 @@ export function PriceSummary({ event }) {
   return (
     <div className="price-box">
       <div className="row between">
-        <span className="small muted">Preço por foto</span>
+        <span className="small muted">Preço por foto{event.archived && <> · <span className="badge">preço de acervo</span></>}</span>
         <b className="big">{money(event.price_cents)}</b>
       </div>
       {tiers.map((t) => (

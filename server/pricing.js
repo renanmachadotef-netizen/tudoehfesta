@@ -13,6 +13,52 @@ export async function setSetting(key, value) {
   );
 }
 
+// Preco do acervo. Foto de evento cadastrado vale o preco do evento (com pacote e descontos) ate N meses depois
+// da data do evento; depois disso, e sempre para fotos que estao so no acervo do ano, vale a tabela do acervo:
+// um preco por ano (se definido) ou o preco padrao. months = 0 desliga a passagem de eventos para o acervo.
+const ARCHIVE_DEFAULT = { months: 12, price_cents: 1500, years: {} };
+let archive = ARCHIVE_DEFAULT;
+
+export function normalizeArchive(v) {
+  const months = Math.max(0, Math.min(120, Math.round(Number(v?.months ?? ARCHIVE_DEFAULT.months)) || 0));
+  const price = Math.max(100, Math.round(Number(v?.price_cents ?? ARCHIVE_DEFAULT.price_cents)) || ARCHIVE_DEFAULT.price_cents);
+  const years = {};
+  for (const [y, c] of Object.entries(v?.years || {})) {
+    const cents = Math.round(Number(c));
+    if (/^\d{4}$/.test(y) && cents >= 100) years[y] = cents;
+  }
+  return { months, price_cents: price, years };
+}
+export async function refreshArchivePricing() {
+  archive = normalizeArchive(await getSetting('archive_pricing', null));
+  return archive;
+}
+export const archivePricing = () => archive;
+// Outra copia do servidor (deploy) pode ter salvo a tabela: relê de tempos em tempos.
+setInterval(() => refreshArchivePricing().catch(() => {}), 60_000).unref();
+
+const addMonths = (iso, m) => {
+  const d = new Date(`${String(iso).slice(0, 10)}T12:00:00Z`);
+  d.setUTCMonth(d.getUTCMonth() + m);
+  return d.toISOString().slice(0, 10);
+};
+
+// Preco que vale hoje para as fotos de um evento (ev: kind, event_date, price_cents, pack_price_cents, discount_tiers).
+export function effectivePrice(ev, ap = archive) {
+  const year = String(ev.event_date).slice(0, 4);
+  const archiveCents = ap.years[year] ?? ap.price_cents;
+  const pool = ev.kind === 'pool';
+  const from = pool || !ap.months ? null : addMonths(ev.event_date, ap.months);
+  const archived = pool || (from !== null && new Date().toISOString().slice(0, 10) >= from);
+  if (archived) {
+    return { price_cents: archiveCents, pack_price_cents: null, discount_tiers: [], archived: true, archive_from: from, archive_price_cents: archiveCents };
+  }
+  return {
+    price_cents: ev.price_cents, pack_price_cents: ev.pack_price_cents ?? null, discount_tiers: ev.discount_tiers || [],
+    archived: false, archive_from: from, archive_price_cents: archiveCents,
+  };
+}
+
 export function tierPctFor(tiers, n) {
   let pct = 0;
   for (const t of Array.isArray(tiers) ? tiers : []) {
@@ -32,7 +78,7 @@ export async function priceCart(photoIds, couponCode) {
   if (!ids.length) return { groups: [], items: [], subtotal: 0, discount: 0, total: 0, coupon: null };
 
   const rows = await db.many(
-    `select p.id as photo_id, p.event_id, p.key, e.title, e.slug, e.price_cents, e.pack_price_cents, e.discount_tiers,
+    `select p.id as photo_id, p.event_id, p.key, e.title, e.slug, e.price_cents, e.pack_price_cents, e.discount_tiers, e.kind, e.event_date,
             e.photographer_id, ph.commission_pct
        from photos p
        join events e on e.id = p.event_id and e.status = 'published'
@@ -62,12 +108,13 @@ export async function priceCart(photoIds, couponCode) {
   let couponUsed = false;
   for (const { meta, photos } of byEvent.values()) {
     const n = photos.length;
-    const base = n * meta.price_cents;
-    const tierPct = tierPctFor(meta.discount_tiers, n);
+    const price = effectivePrice(meta);
+    const base = n * price.price_cents;
+    const tierPct = tierPctFor(price.discount_tiers, n);
     let total = Math.round(base * (1 - tierPct / 100));
     let packApplied = false;
-    if (meta.pack_price_cents && total > meta.pack_price_cents) {
-      total = meta.pack_price_cents;
+    if (price.pack_price_cents && total > price.pack_price_cents) {
+      total = price.pack_price_cents;
       packApplied = true;
     }
     const couponOk = coupon &&
@@ -82,15 +129,15 @@ export async function priceCart(photoIds, couponCode) {
     let rest = total - each * n;
     for (const ph of photos) {
       const photoId = ph.photo_id;
-      const price = each + (rest-- > 0 ? 1 : 0);
-      const commission = Math.round((price * pct) / 100);
+      const itemPrice = each + (rest-- > 0 ? 1 : 0);
+      const commission = Math.round((itemPrice * pct) / 100);
       items.push({
         photo_id: photoId,
         event_id: meta.event_id,
         photographer_id: meta.photographer_id,
-        price_cents: price,
+        price_cents: itemPrice,
         commission_cents: commission,
-        photographer_cents: price - commission,
+        photographer_cents: itemPrice - commission,
         thumb: thumbUrl(ph.event_id, photoId, ph.key),
       });
     }
@@ -99,7 +146,8 @@ export async function priceCart(photoIds, couponCode) {
       title: meta.title,
       slug: meta.slug,
       count: n,
-      unit_cents: meta.price_cents,
+      unit_cents: price.price_cents,
+      archived: price.archived,
       base_cents: base,
       tier_pct: tierPct,
       pack_applied: packApplied,

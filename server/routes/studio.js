@@ -10,7 +10,7 @@ import { normalizeWatermark, watermarkPreview, clearWatermarkCache } from '../wa
 import { driveInfo, parseFolderId, folderName, previewSource, ignoreWords } from '../drive.js';
 import { queueStatus } from '../jobs.js';
 import { encodeDescriptor, invalidateFaces } from '../faces.js';
-import { getSetting, setSetting } from '../pricing.js';
+import { getSetting, setSetting, effectivePrice } from '../pricing.js';
 import { EVENT_CARD, EVENT_JOINS, eventCard, photoOut } from './public.js';
 import { fail, cleanText, toCents, uniqueSlug, photographerBalance } from '../util.js';
 
@@ -169,7 +169,7 @@ r.get('/events/:id', async (req, res) => {
             (select count(*) from faces f where f.event_id = e.id)::int as face_count ${EVENT_JOINS} where e.id = $1`,
     [ev.id],
   );
-  res.json({ event: eventCard(row), queue: await queueStatus('p.event_id = $1', [ev.id]) });
+  res.json({ event: { ...eventCard(row), pricing: effectivePrice(row) }, queue: await queueStatus('p.event_id = $1', [ev.id]) });
 });
 
 r.put('/events/:id', async (req, res) => {

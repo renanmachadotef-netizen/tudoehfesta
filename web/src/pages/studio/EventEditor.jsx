@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { Upload, Trash2, Star, ScanFace, Plus, X, ExternalLink, Copy, Download, MessageCircle, ArrowLeft, EyeOff, Eye, HardDrive, RefreshCw } from 'lucide-react';
 import { api, uploadWithProgress } from '../../lib/api.js';
 import { useSite } from '../../lib/site.jsx';
-import { centsToInput, money } from '../../lib/format.js';
+import { centsToInput, money, dateBR } from '../../lib/format.js';
 import { detectFaces, fileToCanvas, loadFaceApi } from '../../lib/faces.js';
 import { Loading, ErrorBox } from '../../components/Layout.jsx';
 import { EVENT_STATUS } from './EventsList.jsx';
@@ -397,6 +397,15 @@ export default function EventEditor() {
         </div>
         {event.id && <span className="small muted">{money(event.price_cents)}/foto · {event.photo_count} fotos · {event.face_count} rostos</span>}
       </div>
+      {event.id && event.pricing && (
+        <div className="alert small">
+          {event.pricing.archived
+            ? <>Hoje as fotos deste {event.kind === 'pool' ? 'grupo do acervo' : 'evento'} são vendidas pelo <b>preço do acervo: {money(event.pricing.price_cents)}</b> por foto{event.kind === 'pool' ? '' : ' (o evento já passou do prazo de evento recente)'}. A tabela fica em Admin → Configurações.</>
+            : event.pricing.archive_from
+              ? <>Preço de evento recente: <b>{money(event.price_cents)}</b> por foto, com seus descontos e pacote. Em <b>{dateBR(event.pricing.archive_from)}</b> passa para o preço do acervo: <b>{money(event.pricing.archive_price_cents)}</b> por foto.</>
+              : <>Este evento usa sempre o próprio preço (a passagem para o acervo está desligada).</>}
+      </div>
+      )}
 
       {event.id && event.status !== 'published' && photos.length > 0 && (
         <div className="alert alert-warn">Este evento ainda não aparece no site. Mude o status para <b>Publicado</b> quando terminar de enviar.</div>

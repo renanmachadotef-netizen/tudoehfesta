@@ -8,6 +8,7 @@ import { loadUser, hashPassword } from './auth.js';
 import { dirs } from './storage.js';
 import { HttpError, uniqueSlug } from './util.js';
 import { startJobs } from './jobs.js';
+import { refreshArchivePricing } from './pricing.js';
 import { progress } from './activity.js';
 import publicRoutes from './routes/public.js';
 import authRoutes from './routes/auth.js';
@@ -20,6 +21,7 @@ const root = path.dirname(fileURLToPath(import.meta.url));
 const webDist = path.resolve(root, '..', 'dist');
 
 await initDb();
+await refreshArchivePricing();
 await seedAdmin();
 
 const app = express();

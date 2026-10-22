@@ -7,7 +7,7 @@ import { db } from '../db.js';
 import { config } from '../config.js';
 import { activity, recentActivity, progress, rate, startedAt } from '../activity.js';
 import { requireAdmin, hashPassword } from '../auth.js';
-import { getSetting, setSetting } from '../pricing.js';
+import { getSetting, setSetting, normalizeArchive, refreshArchivePricing, archivePricing } from '../pricing.js';
 import { markOrderPaid, mpEnabled, paymentOptions } from '../payments.js';
 import { dirs, storeAsset, removePhotoFiles, thumbUrl } from '../storage.js';
 import { invalidateFaces } from '../faces.js';
@@ -287,7 +287,7 @@ r.post('/users/:id/reset-password', async (req, res) => {
 
 r.get('/settings', async (_req, res) => {
   const rows = await db.many('select key, value from settings');
-  res.json({ settings: Object.fromEntries(rows.map((x) => [x.key, x.value])), mercadopago: mpEnabled(), payments: await paymentOptions() });
+  res.json({ settings: Object.fromEntries(rows.map((x) => [x.key, x.value])), mercadopago: mpEnabled(), payments: await paymentOptions(), archive: archivePricing() });
 });
 
 r.put('/settings', async (req, res) => {
@@ -295,6 +295,10 @@ r.put('/settings', async (req, res) => {
   if (b.commission_pct != null) await setSetting('commission_pct', Math.min(100, Math.max(0, Number(b.commission_pct))));
   if (b.release_days != null) await setSetting('release_days', Math.min(60, Math.max(0, Math.round(Number(b.release_days)))));
   if (b.min_payout_cents != null) await setSetting('min_payout_cents', Math.max(0, Math.round(Number(b.min_payout_cents))));
+  if (b.archive_pricing) {
+    await setSetting('archive_pricing', normalizeArchive(b.archive_pricing));
+    await refreshArchivePricing();
+  }
   if (b.payments) {
     const ok = (v) => (['mercadopago', 'infinitepay'].includes(v) ? v : null);
     await setSetting('payments', { pix: ok(b.payments.pix), card: ok(b.payments.card) });

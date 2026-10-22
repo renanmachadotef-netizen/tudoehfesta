@@ -434,7 +434,13 @@ function SettingsPage() {
   const [f, setF] = useState(null);
   if (loading) return <Loading />;
   const s = data.settings;
-  const form = f || { commission_pct: s.commission_pct, release_days: s.release_days, min_payout: centsToInput(s.min_payout_cents), ...s.site, pay_pix: data.payments.pix, pay_card: data.payments.card || '' };
+  const form = f || {
+    commission_pct: s.commission_pct, release_days: s.release_days, min_payout: centsToInput(s.min_payout_cents), ...s.site, pay_pix: data.payments.pix, pay_card: data.payments.card || '',
+    arch_months: data.archive.months, arch_price: centsToInput(data.archive.price_cents),
+    arch_years: Object.entries(data.archive.years).sort((a, b) => b[0].localeCompare(a[0])).map(([year, c]) => ({ year, price: centsToInput(c) })),
+  };
+  const toCents = (v) => Math.round(Number(String(v || '').replace(/\./g, '').replace(',', '.')) * 100);
+  const setYear = (i, k, v) => setF({ ...form, arch_years: form.arch_years.map((r, j) => (j === i ? { ...r, [k]: v } : r)) });
   const set = (k) => (e) => setF({ ...form, [k]: e.target.value });
   const save = async (e) => {
     e.preventDefault();
@@ -444,6 +450,11 @@ function SettingsPage() {
         commission_pct: form.commission_pct, release_days: form.release_days,
         min_payout_cents: Math.round(Number(String(form.min_payout).replace(',', '.')) * 100),
         payments: { pix: form.pay_pix, card: form.pay_card },
+        archive_pricing: {
+          months: Number(form.arch_months) || 0,
+          price_cents: toCents(form.arch_price),
+          years: Object.fromEntries(form.arch_years.filter((r) => /^\d{4}$/.test(String(r.year).trim()) && toCents(r.price) >= 100).map((r) => [String(r.year).trim(), toCents(r.price)])),
+        },
         site: { whatsapp: form.whatsapp, instagram: form.instagram, tagline: form.tagline, about: form.about, pix_key: form.pix_key, pix_name: form.pix_name, since: form.since },
       },
     });
@@ -468,6 +479,25 @@ function SettingsPage() {
           <label className="field"><span>Comissão padrão (%)</span><input className="input" type="number" min="0" max="100" step="0.5" value={form.commission_pct} onChange={set('commission_pct')} /><small>Pode ser ajustada por fotógrafo.</small></label>
           <label className="field"><span>Dias para liberar saldo</span><input className="input" type="number" min="0" max="60" value={form.release_days} onChange={set('release_days')} /></label>
           <label className="field"><span>Saque mínimo (R$)</span><input className="input" value={form.min_payout} onChange={set('min_payout')} /></label>
+        </div>
+      </div>
+      <div className="card stack">
+        <h3>Preço das fotos antigas (acervo)</h3>
+        <p className="small muted">Fotos de um evento cadastrado custam o preço do evento enquanto ele é recente. Passado o prazo abaixo, e sempre para as fotos que estão só no acervo do ano, vale esta tabela: o preço do ano, se houver, senão o preço padrão. Na busca por ano, cada foto aparece com o próprio preço.</p>
+        <div className="grid-2">
+          <label className="field"><span>Evento vira acervo depois de (meses)</span><input className="input" type="number" min="0" max="120" value={form.arch_months} onChange={set('arch_months')} /><small>0 = eventos cadastrados nunca mudam de preço.</small></label>
+          <label className="field"><span>Preço padrão do acervo (R$ por foto)</span><input className="input" inputMode="decimal" value={form.arch_price} onChange={set('arch_price')} /></label>
+        </div>
+        <div className="stack" style={{ gap: 8 }}>
+          <b className="small">Preço por ano (opcional)</b>
+          {form.arch_years.map((r, i) => (
+            <div key={i} className="row" style={{ gap: 8, flexWrap: 'nowrap' }}>
+              <input className="input" style={{ width: 110 }} inputMode="numeric" placeholder="Ano" aria-label="Ano" value={r.year} onChange={(e) => setYear(i, 'year', e.target.value)} />
+              <input className="input" style={{ width: 150 }} inputMode="decimal" placeholder="R$ por foto" aria-label="Preço por foto" value={r.price} onChange={(e) => setYear(i, 'price', e.target.value)} />
+              <button type="button" className="btn btn-sm btn-ghost" onClick={() => setF({ ...form, arch_years: form.arch_years.filter((_, j) => j !== i) })}>Remover</button>
+            </div>
+          ))}
+          <button type="button" className="btn btn-sm btn-soft" style={{ alignSelf: 'flex-start' }} onClick={() => setF({ ...form, arch_years: [...form.arch_years, { year: '', price: '' }] })}>Adicionar ano</button>
         </div>
       </div>
       <div className="card stack">

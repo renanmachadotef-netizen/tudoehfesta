@@ -6,6 +6,7 @@ import { photoOut } from './public.js';
 import { fail, rateLimit } from '../util.js';
 import { activity } from '../activity.js';
 import { privateFile } from '../storage.js';
+import { effectivePrice } from '../pricing.js';
 
 // Rosto do cliente (monitoramento + "borrar minhas imagens") e fotos encontradas para ele.
 // Guardamos so os vetores (128 numeros), com consentimento explicito; a selfie nunca sai do aparelho.
@@ -75,7 +76,7 @@ r.put('/me/privacy', async (req, res) => {
 r.get('/my/matches', async (req, res) => {
   const rows = await db.many(
     `select p.id, p.event_id, p.width, p.height, p.key, m.seen, m.created_at, e.title as event_title, e.slug as event_slug,
-            e.event_date, e.price_cents, e.kind as event_kind, ${MINE_BLURRED('$1')}
+            e.event_date, e.price_cents, e.pack_price_cents, e.kind as event_kind, ${MINE_BLURRED('$1')}
        from user_matches m
        join photos p on p.id = m.photo_id and p.key is not null and not p.hidden
        join events e on e.id = p.event_id and e.status = 'published'
@@ -89,7 +90,7 @@ r.get('/my/matches', async (req, res) => {
   res.json({
     photos: rows.map((p) => ({
       ...personalOut(p, req.user.id), event_title: p.event_title, event_slug: p.event_slug, event_date: p.event_date,
-      price_cents: p.price_cents, event_kind: p.event_kind, new: !p.seen,
+      price_cents: effectivePrice({ ...p, kind: p.event_kind }).price_cents, event_kind: p.event_kind, new: !p.seen,
     })),
   });
 });

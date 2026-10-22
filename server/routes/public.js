@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { db } from '../db.js';
-import { getSetting, priceCart } from '../pricing.js';
+import { getSetting, priceCart, effectivePrice } from '../pricing.js';
 import { searchFaces, DIM, DEFAULT_THRESHOLD } from '../faces.js';
 import { previewUrl, thumbUrl } from '../storage.js';
 import { paymentOptions } from '../payments.js';
@@ -26,6 +26,15 @@ export const EVENT_JOINS = `
      where p.key is not null and not p.hidden and p.id = coalesce(e.cover_photo_id,
        case when e.hide_gallery then null else (select min(p2.id) from photos p2 where p2.event_id = e.id and p2.key is not null and not p2.hidden) end)
   ) cv on true`;
+
+// Cartao publico: preco que vale hoje (evento recente = preco do evento; antigo ou acervo = tabela do acervo).
+export function publicCard(row) {
+  const p = effectivePrice(row);
+  return {
+    ...eventCard(row), price_cents: p.price_cents, pack_price_cents: p.pack_price_cents, discount_tiers: p.discount_tiers,
+    archived: p.archived,
+  };
+}
 
 export function eventCard(row) {
   const { cover_id, cover_key, ...rest } = row;
@@ -102,7 +111,7 @@ r.get('/events', async (req, res) => {
       order by e.event_date desc, e.id desc limit $${params.length - 1} offset $${params.length}`,
     params,
   );
-  res.json({ events: rows.slice(0, limit).map(eventCard), more: rows.length > limit });
+  res.json({ events: rows.slice(0, limit).map(publicCard), more: rows.length > limit });
 });
 
 r.get('/events/:slug', async (req, res) => {
@@ -117,7 +126,7 @@ r.get('/events/:slug', async (req, res) => {
   const canSee = row && (owner || (row.status === 'published' && row.kind === 'event'));
   if (!canSee) fail(404, 'Evento não encontrado.');
   db.query('update events set views = views + 1 where id = $1', [row.id]).catch(() => {});
-  res.json({ event: eventCard(row) });
+  res.json({ event: publicCard(row) });
 });
 
 r.get('/events/:slug/photos', async (req, res) => {
@@ -140,12 +149,12 @@ r.get('/photos', async (req, res) => {
   const ids = String(req.query.ids || '').split(',').map(Number).filter(Boolean).slice(0, 500);
   if (!ids.length) return res.json({ photos: [] });
   const rows = await db.many(
-    `select p.id, p.event_id, p.width, p.height, p.key, e.title as event_title, e.slug as event_slug, e.price_cents
+    `select p.id, p.event_id, p.width, p.height, p.key, e.title as event_title, e.slug as event_slug, e.price_cents, e.kind, e.event_date, e.pack_price_cents
        from photos p join events e on e.id = p.event_id and e.status = 'published' and not e.hide_gallery and e.kind = 'event'
       where p.id = any($1::int[]) and p.key is not null and not p.hidden`,
     [ids],
   );
-  res.json({ photos: rows.map((p) => ({ ...photoOut(p), event_title: p.event_title, event_slug: p.event_slug, price_cents: p.price_cents })) });
+  res.json({ photos: rows.map((p) => ({ ...photoOut(p), event_title: p.event_title, event_slug: p.event_slug, price_cents: effectivePrice(p).price_cents })) });
 });
 
 // Busca facial. Recebe so os vetores calculados no navegador: a selfie nunca sai do aparelho.
@@ -174,7 +183,7 @@ r.post('/faces/search', rateLimit('faces', 40, 60_000), async (req, res) => {
   const byId = new Map(rows.map((p) => [p.id, p]));
   const photos = hits.filter((h) => byId.has(h.photoId)).map((h) => ({ ...photoOut(byId.get(h.photoId)), distance: Number(h.distance.toFixed(3)) }));
   const eventIds = [...new Set(photos.map((p) => p.event_id))];
-  const events = (await db.many(`select ${EVENT_CARD} ${EVENT_JOINS} where e.id = any($1::int[]) order by e.event_date desc`, [eventIds])).map(eventCard);
+  const events = (await db.many(`select ${EVENT_CARD} ${EVENT_JOINS} where e.id = any($1::int[]) order by e.event_date desc`, [eventIds])).map(publicCard);
   res.json({ photos, events });
 });
 
@@ -198,7 +207,7 @@ r.get('/photographers/:slug', async (req, res) => {
   const events = (await db.many(
     `select ${EVENT_CARD} ${EVENT_JOINS} where e.photographer_id = $1 and e.status = 'published' and e.kind = 'event' order by e.event_date desc limit 60`,
     [ph.user_id],
-  )).map(eventCard);
+  )).map(publicCard);
   const { user_id: _omit, ...pub } = ph;
   res.json({ photographer: pub, events });
 });
