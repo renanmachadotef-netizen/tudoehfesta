@@ -546,7 +546,10 @@ function SettingsPage() {
         <div className="row">
           <label className="btn btn-soft btn-sm"><Camera size={14} /> Enviar logo<input type="file" accept="image/*" hidden onChange={(e) => e.target.files[0] && upload('logo', e.target.files[0])} /></label>
           {s.site?.logo && <img src={s.site.logo} alt="logo" style={{ height: 36, background: 'var(--surface)', borderRadius: 6, padding: 4 }} />}
+          <label className="btn btn-soft btn-sm"><Camera size={14} /> Enviar banner da página inicial<input type="file" accept="image/*" hidden onChange={(e) => e.target.files[0] && upload('hero', e.target.files[0])} /></label>
+          {s.site?.hero && <img src={s.site.hero} alt="banner" style={{ height: 48, borderRadius: 6 }} />}
         </div>
+        <small className="muted">Banner: imagem larga (ex.: 1920 × 800). Ela aparece atrás do título e da busca no topo da página inicial.</small>
       </div>
       <DriveStatus />
       <button className="btn btn-accent" style={{ alignSelf: 'flex-start' }}>Salvar configurações</button>

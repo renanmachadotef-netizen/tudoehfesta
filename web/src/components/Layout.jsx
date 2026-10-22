@@ -5,6 +5,7 @@ import { useSite } from '../lib/site.jsx';
 import { useCart, attachCartSync } from '../lib/cart.js';
 import { api } from '../lib/api.js';
 import { consent, loadTrackers, track } from '../lib/track.js';
+import { QUICK_CATS, catPath } from './EventBrowser.jsx';
 
 export function Logo({ light = false }) {
   const { site } = useSite();
@@ -35,9 +36,10 @@ function UserMenu() {
   }, []);
   if (!user) {
     return (
-      <Link to="/entrar" className="btn btn-sm btn-ghost">
-        <User size={16} /> Entrar
-      </Link>
+      <>
+        <Link to="/entrar" className="header-login">Entrar</Link>
+        <Link to="/cadastro" className="btn btn-sm btn-accent header-signup">Cadastre-se</Link>
+      </>
     );
   }
   const logout = async () => {
@@ -80,14 +82,13 @@ export function Header() {
       <div className="container header-inner">
         <Logo />
         <nav className="nav">
-          <NavLink to="/eventos">Eventos</NavLink>
-          <NavLink to="/buscar">Buscar com selfie</NavLink>
-          <NavLink to="/fotografos">Fotógrafos</NavLink>
+          {QUICK_CATS.map((c) => <NavLink key={c.slug} to={c.path}>{c.label}</NavLink>)}
+          <NavLink to="/eventos" end>Todos os eventos</NavLink>
           <NavLink to="/seja-fotografo" className="nav-extra">Venda suas fotos</NavLink>
         </nav>
         <div className="grow" />
-        <Link to="/buscar" className="btn btn-sm btn-accent header-cta">
-          <ScanFace size={16} /> Achar minhas fotos
+        <Link to="/buscar" className="header-find">
+          <ScanFace size={18} /> Achar minhas fotos
         </Link>
         <Link to="/carrinho" className="icon-btn" aria-label="Carrinho">
           <ShoppingBag size={20} />
@@ -132,8 +133,9 @@ export function Footer() {
         </div>
         <div>
           <h4>Eventos</h4>
-          {(categories || []).filter((c) => c.events > 0).slice(0, 6).map((c) => (
-            <Link key={c.id} to={`/categoria/${c.slug}`}>{c.name}</Link>
+          {QUICK_CATS.map((c) => <Link key={c.slug} to={c.path}>{c.label}</Link>)}
+          {(categories || []).filter((c) => c.events > 0 && !QUICK_CATS.some((x) => x.slug === c.slug)).slice(0, 4).map((c) => (
+            <Link key={c.id} to={catPath(c.slug)}>{c.name}</Link>
           ))}
           <Link to="/eventos">Todos os eventos</Link>
         </div>

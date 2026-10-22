@@ -9,6 +9,14 @@ export function dateBR(iso, long = false) {
   if (long) return `${d} de ${new Date(y, m - 1, d).toLocaleDateString('pt-BR', { month: 'long' })} de ${y}`;
   return `${String(d).padStart(2, '0')} ${MONTHS[m - 1]} ${y}`;
 }
+const WEEK = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+// "12 set 2026 (Sáb)"
+export function dateWeekBR(iso) {
+  if (!iso) return '';
+  const [y, m, d] = String(iso).slice(0, 10).split('-').map(Number);
+  return `${dateBR(iso)} (${WEEK[new Date(y, m - 1, d).getDay()]})`;
+}
+export const MONTH_NAMES = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
 export const dateTimeBR = (iso) =>
   iso ? new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' }) : '';
 export const plural = (n, one, many) => `${n.toLocaleString('pt-BR')} ${n === 1 ? one : many}`;

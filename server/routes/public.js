@@ -100,8 +100,9 @@ r.get('/events', async (req, res) => {
   };
   if (req.query.category) add('c.slug = ?', String(req.query.category));
   if (req.query.year) add('extract(year from e.event_date) = ?', Number(req.query.year));
+  if (req.query.month) add('extract(month from e.event_date) = ?', Number(req.query.month));
   if (req.query.photographer) add('ph.slug = ?', String(req.query.photographer));
-  if (req.query.city) add('e.city ilike ?', `%${req.query.city}%`);
+  if (req.query.city) add('e.city = ?', String(req.query.city));
   if (req.query.q) {
     params.push(`%${String(req.query.q).trim()}%`);
     const i = params.length;
@@ -116,6 +117,29 @@ r.get('/events', async (req, res) => {
     params,
   );
   res.json({ events: rows.slice(0, limit).map(publicCard), more: rows.length > limit });
+});
+
+// Opcoes dos filtros da lista de eventos (cidades e anos com eventos) e a capa mais recente de cada categoria.
+const PUBLIC_EVENT = `e.status = 'published' and e.kind = 'event' and e.visibility = 'public'`;
+r.get('/events/facets', async (req, res) => {
+  const cat = req.query.category ? String(req.query.category) : null;
+  const [cities, years, covers] = await Promise.all([
+    db.many(
+      `select e.city, count(*)::int as events from events e left join categories c on c.id = e.category_id
+        where ${PUBLIC_EVENT} and coalesce(e.city, '') <> '' and ($1::text is null or c.slug = $1) group by e.city order by count(*) desc, e.city`,
+      [cat],
+    ),
+    db.many(
+      `select extract(year from e.event_date)::int as year, count(*)::int as events from events e left join categories c on c.id = e.category_id
+        where ${PUBLIC_EVENT} and ($1::text is null or c.slug = $1) group by 1 order by 1 desc`,
+      [cat],
+    ),
+    db.many(
+      `select distinct on (c.slug) c.slug as cat_slug, ${EVENT_CARD} ${EVENT_JOINS}
+        where ${PUBLIC_EVENT} and cv.id is not null order by c.slug, e.event_date desc, e.id desc`,
+    ),
+  ]);
+  res.json({ cities, years, covers: Object.fromEntries(covers.map((r) => [r.cat_slug, eventCard(r).cover_thumb])) });
 });
 
 r.get('/events/:slug', async (req, res) => {

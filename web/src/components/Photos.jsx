@@ -1,28 +1,25 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Check, ChevronLeft, ChevronRight, X, Calendar, MapPin, Images, ShoppingBag, Camera } from 'lucide-react';
+import { Check, ChevronLeft, ChevronRight, X, Clock, MapPin, ShoppingBag, Camera } from 'lucide-react';
 import { cart, useCart } from '../lib/cart.js';
-import { dateBR, money } from '../lib/format.js';
+import { dateWeekBR, money } from '../lib/format.js';
 
 export function EventCard({ event, to }) {
   return (
     <Link to={to || `/evento/${event.slug}`} className="event-card">
       <div className="event-cover">
         {event.cover_thumb ? (
-          <img src={event.cover} alt="" loading="lazy" decoding="async" />
+          <img src={event.cover_thumb} srcSet={`${event.cover_thumb} 480w, ${event.cover} 1400w`} sizes="(max-width: 560px) 100vw, 300px" alt="" loading="lazy" decoding="async" />
         ) : (
           <div className="placeholder-cover"><Camera size={30} strokeWidth={1.5} /></div>
         )}
-        {event.category_name && <span className="badge">{event.category_name}</span>}
-        {event.photo_count > 0 && <span className="badge count"><Images size={12} /> {event.photo_count}</span>}
       </div>
-      <div>
-        <div className="event-title">{event.title}</div>
-        <div className="event-meta" style={{ marginTop: 4 }}>
-          <span className="row" style={{ gap: 4 }}><Calendar size={13} /> {dateBR(event.event_date)}</span>
-          {event.city && <span className="row" style={{ gap: 4 }}><MapPin size={13} /> {event.city}</span>}
-        </div>
-        {event.photographer_name && <div className="tiny muted" style={{ marginTop: 2 }}>por {event.photographer_name}</div>}
+      <div className="event-body">
+        <div className="event-title" title={event.title}>{event.title}</div>
+        {(event.venue || event.city) && (
+          <div className="event-meta"><MapPin size={16} /><span>{[event.venue, event.city].filter(Boolean).join(' • ')}</span></div>
+        )}
+        <div className="event-meta"><Clock size={16} /><span>{dateWeekBR(event.event_date)}</span></div>
       </div>
     </Link>
   );
@@ -34,7 +31,7 @@ export function EventGridSkeleton({ n = 8 }) {
       {Array.from({ length: n }, (_, i) => (
         <div key={i} className="event-card">
           <div className="event-cover skeleton" />
-          <div className="skeleton" style={{ height: 16, width: '70%', borderRadius: 6 }} />
+          <div className="event-body"><div className="skeleton" style={{ height: 16, width: '70%', borderRadius: 6 }} /></div>
         </div>
       ))}
     </div>

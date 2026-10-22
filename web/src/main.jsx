@@ -41,6 +41,9 @@ createRoot(document.getElementById('root')).render(
               <Route index element={<Home />} />
               <Route path="eventos" element={<Events />} />
               <Route path="categoria/:category" element={<Events />} />
+              <Route path="formaturas" element={<Events category="formaturas" />} />
+              <Route path="esportes" element={<Events category="esportes" />} />
+              <Route path="festas" element={<Events category="festas" />} />
               <Route path="evento/:slug" element={<EventPage />} />
               <Route path="ano/:year" element={<YearPage />} />
               <Route path="buscar" element={<SearchPage />} />
