@@ -14,7 +14,7 @@ import ArtEditor from './ArtEditor.jsx';
 import EventTeam from './EventTeam.jsx';
 import { EventCard } from '../../components/Photos.jsx';
 
-const blank = { title: '', event_date: new Date().toISOString().slice(0, 10), category_id: '', city: '', venue: '', description: '', price: '15,00', pack_price: '', discount_tiers: [{ min: 5, pct: 20 }], status: 'draft', hide_gallery: false, watermark_mode: 'site', visibility: 'public', password: '', publish_at: '', protect_mode: 'none', bib_search: false };
+const blank = { title: '', event_date: new Date().toISOString().slice(0, 10), category_id: '', city: '', venue: '', description: '', price: '15,00', pack_price: '', discount_tiers: [{ min: 5, pct: 20 }], status: 'draft', hide_gallery: false, watermark_mode: 'site', visibility: 'public', password: '', publish_at: '', protect_mode: 'none', bib_search: false, accepts_partners: false };
 // Data e hora de Brasilia para o campo datetime-local (o servidor guarda com fuso).
 const toLocalInput = (iso) => (iso ? new Date(new Date(iso).getTime() - 3 * 3600e3).toISOString().slice(0, 16) : '');
 
@@ -118,6 +118,10 @@ function EventForm({ initial, onSaved }) {
         <div className="field"><span>Busca por número de peito</span>
           <label className="check"><input type="checkbox" checked={!!f.bib_search} onChange={(e) => setF({ ...f, bib_search: e.target.checked })} /><span><b>Ler os números de peito das fotos</b> <span className="muted">· para corridas, caminhadas e torneios: o atleta digita o número e acha as fotos dele</span></span></label>
           <small>O servidor lê os números depois do envio (leva alguns segundos por foto).</small>
+        </div>
+        <div className="field"><span>Parcerias</span>
+          <label className="check"><input type="checkbox" checked={!!f.accepts_partners} onChange={(e) => setF({ ...f, accepts_partners: e.target.checked })} /><span><b>Aceita parcerias</b> <span className="muted">· outros fotógrafos do site cobrem o evento com você, cada um com a própria pasta do Drive</span></span></label>
+          <small>Depois de salvar, aparece a equipe para você chamar os fotógrafos pelo nome. O cliente vê as fotos de todos juntas no evento.</small>
         </div>
       </div>
       <div className="card-flat stack">
@@ -440,7 +444,12 @@ export default function EventEditor() {
         </div>
         {closed || full
           ? <div className="alert alert-warn">{closed ? 'O prazo de envio deste evento terminou.' : 'Você chegou ao limite de fotos deste evento.'} Fale com o organizador se precisar enviar mais.</div>
-          : <Uploader eventId={event.id} onUploaded={(p) => { if (p) setPhotos((list) => [...list, { ...p, sold: 0 }]); }} />}
+          : (
+            <>
+              <EventDrive eventId={event.id} onChange={() => api(`/studio/events/${event.id}/photos`).then((x) => setPhotos(x.photos)).catch(() => {})} />
+              <Uploader eventId={event.id} onUploaded={(p) => { if (p) setPhotos((list) => [...list, { ...p, sold: 0 }]); }} />
+            </>
+          )}
         <PhotosManager event={event} photos={photos} setPhotos={setPhotos} onCover={() => {}} team />
       </div>
     );
@@ -451,7 +460,7 @@ export default function EventEditor() {
     description: event.description, price: centsToInput(event.price_cents), pack_price: centsToInput(event.pack_price_cents),
     discount_tiers: event.discount_tiers || [], status: event.status, hide_gallery: event.hide_gallery, watermark_mode: event.watermark_mode || 'site',
     visibility: event.visibility || 'public', password: '', has_password: event.visibility === 'password', publish_at: toLocalInput(event.publish_at),
-    protect_mode: event.protect_mode || 'none', bib_search: !!event.bib_search,
+    protect_mode: event.protect_mode || 'none', bib_search: !!event.bib_search, accepts_partners: !!event.accepts_partners,
   } : blank;
 
   const remove = async () => {
@@ -535,7 +544,7 @@ export default function EventEditor() {
       />
 
       {event.id && <PhotosManager event={event} photos={photos} setPhotos={setPhotos} onCover={(pid) => setEvent({ ...event, cover_photo_id: pid })} onQueued={(n) => n && setQueue((q) => ({ render: q?.render || 0, faces: (q?.faces || 0) + n }))} />}
-      {event.id && event.kind !== 'pool' && <EventTeam eventId={event.id} />}
+      {event.id && event.kind !== 'pool' && event.accepts_partners && <EventTeam eventId={event.id} />}
       {event.id && event.status === 'published' && <ShareKit event={event} />}
       {event.id && photos.length > 0 && <ArtEditor event={event} photos={photos} />}
       {event.id && <button className="btn btn-danger btn-sm" style={{ alignSelf: 'flex-start' }} onClick={remove}><Trash2 size={14} /> Excluir evento</button>}

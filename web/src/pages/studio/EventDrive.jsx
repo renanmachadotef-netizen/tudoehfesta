@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { HardDrive, RefreshCw, Unlink, Search, FolderOpen, Camera, Tag } from 'lucide-react';
+import { HardDrive, RefreshCw, Unlink, Search, FolderOpen, Camera, Tag, Users } from 'lucide-react';
 import { api } from '../../lib/api.js';
 import { useSite } from '../../lib/site.jsx';
 import { dateBR, dateTimeBR, plural } from '../../lib/format.js';
@@ -72,20 +72,26 @@ export default function EventDrive({ eventId, onChange }) {
     await api(`/studio/events/${eventId}/drive?release=1`, { method: 'DELETE' });
     load();
   };
+  const releasePartner = async (p) => {
+    if (!confirm(`Desligar a pasta de ${p.photographer_name} deste evento? As fotos já importadas continuam aqui.`)) return;
+    await api(`/studio/events/${eventId}/drive?user=${p.photographer_id}`, { method: 'DELETE' });
+    load();
+  };
 
+  const team = data.role === 'team';
   const linked = !!data.folder_id;
   return (
     <div className="card stack">
       <div className="row between">
-        <h3 className="row" style={{ gap: 8 }}><HardDrive size={18} /> Fotos do evento</h3>
+        <h3 className="row" style={{ gap: 8 }}><HardDrive size={18} /> {team ? 'Suas fotos neste evento' : 'Fotos do evento'}</h3>
         <span className="small muted">{plural(data.photos, 'foto', 'fotos')}{s?.pending ? ` · ${s.pending} processando` : ''}</span>
       </div>
 
       {linked ? (
         <>
           <p className="small">
-            <Tag size={14} style={{ verticalAlign: -2 }} /> Fotos da pasta <b>{data.folder_path || 'do Drive'}</b>. Fotos novas que você colocar nessa pasta entram sozinhas neste evento
-            (na próxima verificação da pasta geral{s ? ' ou desta pasta' : ''}).
+            <Tag size={14} style={{ verticalAlign: -2 }} /> Fotos da {team ? 'sua ' : ''}pasta <b>{data.folder_path || 'do Drive'}</b>. Fotos novas que você colocar nessa pasta entram sozinhas neste evento
+            {team ? ', em seu nome' : ''} (na próxima verificação da pasta geral{s ? ' ou desta pasta' : ''}).
           </p>
           {s && (
             <span className="tiny muted">
@@ -106,7 +112,7 @@ export default function EventDrive({ eventId, onChange }) {
           </div>
           {mode === 'acervo' ? (
             <div className="stack">
-              <p className="small muted">Cada pasta da pasta geral (ex.: <code>2026 / 10 / renan_01_10_2026</code>) vira uma <b>tag</b> no acervo. Escolha a tag deste evento: só essas fotos aparecem aqui, sem duplicar nada.</p>
+              <p className="small muted">{team ? 'Pastas do seu acervo (da sua pasta do Drive). ' : ''}Cada pasta da pasta geral (ex.: <code>2026 / 10 / renan_01_10_2026</code>) vira uma <b>tag</b> no acervo. Escolha a tag deste evento: só essas fotos aparecem aqui, sem duplicar nada.</p>
               <form className="row" style={{ flexWrap: 'nowrap' }} onSubmit={(e) => { e.preventDefault(); searchPool(); }}>
                 <div className="grow" style={{ position: 'relative' }}>
                   <Search size={16} style={{ position: 'absolute', left: 12, top: 15 }} color="#74706a" />
@@ -134,7 +140,7 @@ export default function EventDrive({ eventId, onChange }) {
             <div className="alert alert-warn">A integração com o Google Drive ainda não foi ativada no servidor.</div>
           ) : (
             <form className="stack" onSubmit={connect}>
-              <p className="small muted">Para uma pasta que <b>não</b> está dentro da pasta geral. {data.info.share_with && <>Compartilhe a pasta com <b style={{ userSelect: 'all' }}>{data.info.share_with}</b>.</>}</p>
+              <p className="small muted">{team ? <>Cole o link da <b>sua</b> pasta com as fotos deste evento: elas entram no evento em seu nome.</> : <>Para uma pasta que <b>não</b> está dentro da pasta geral.</>} {data.info.share_with && <>Compartilhe a pasta com <b style={{ userSelect: 'all' }}>{data.info.share_with}</b>.</>}</p>
               <div className="row" style={{ flexWrap: 'nowrap' }}>
                 <input className="input grow" value={link} onChange={(e) => setLink(e.target.value)} placeholder="https://drive.google.com/drive/folders/…" required />
                 <button className="btn btn-accent" disabled={busy}>{busy ? 'Ligando…' : 'Ligar pasta'}</button>
@@ -143,6 +149,21 @@ export default function EventDrive({ eventId, onChange }) {
             </form>
           )}
         </>
+      )}
+
+      {data.partners?.length > 0 && (
+        <div className="stack" style={{ gap: 8, borderTop: '1px solid var(--line)', paddingTop: 12 }}>
+          <b className="small row" style={{ gap: 6 }}><Users size={15} /> Pastas dos parceiros</b>
+          {data.partners.map((p) => (
+            <div key={p.id} className="row" style={{ flexWrap: 'nowrap', gap: 10 }}>
+              <div className="grow" style={{ minWidth: 0 }}>
+                <b className="small">{p.photographer_name}</b> <span className="small muted">· pasta “{p.name}” · {plural(p.photos, 'foto', 'fotos')}{p.pending ? `, ${p.pending} processando` : ''}</span>
+                <div className="tiny muted">{p.last_status === 'erro' ? <span style={{ color: 'var(--bad)' }}>Erro: {p.last_error}</span> : <>Última rodada: {p.last_status || '—'}</>}{p.last_sync_at && <> · {dateTimeBR(p.last_sync_at)}</>}</div>
+              </div>
+              <button className="btn btn-sm btn-ghost" onClick={() => releasePartner(p)}><Unlink size={14} /> Desligar</button>
+            </div>
+          ))}
+        </div>
       )}
     </div>
   );

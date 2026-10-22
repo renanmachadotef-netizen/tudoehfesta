@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Users, Trash2, UserPlus } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Users, Trash2, UserPlus, Search, Camera } from 'lucide-react';
 import { api } from '../../lib/api.js';
 import { useApi, useSite } from '../../lib/site.jsx';
 import { money, dateTimeBR } from '../../lib/format.js';
@@ -11,16 +11,24 @@ const toLocalInput = (iso) => (iso ? new Date(new Date(iso).getTime() - 3 * 3600
 export default function EventTeam({ eventId }) {
   const { toast } = useSite();
   const { data, reload } = useApi(`/studio/events/${eventId}/team`);
-  const [f, setF] = useState({ email: '', max_photos: '', upload_until: '' });
+  const [f, setF] = useState({ max_photos: '', upload_until: '' });
+  const [q, setQ] = useState('');
+  const [found, setFound] = useState([]);
   const [pct, setPct] = useState(null);
+  // Busca os fotografos cadastrados enquanto digita.
+  useEffect(() => {
+    if (q.trim().length < 2) { setFound([]); return undefined; }
+    const t = setTimeout(() => api(`/studio/photographers/search?q=${encodeURIComponent(q.trim())}`).then((d) => setFound(d.photographers)).catch(() => setFound([])), 250);
+    return () => clearTimeout(t);
+  }, [q]);
   if (!data) return null;
   const orgPct = pct ?? data.organizer_pct;
-  const add = async (e) => {
-    e.preventDefault();
+  const add = async (p) => {
     try {
-      await api(`/studio/events/${eventId}/team`, { method: 'POST', body: f });
-      toast('Fotógrafo adicionado à equipe');
-      setF({ email: '', max_photos: '', upload_until: '' });
+      await api(`/studio/events/${eventId}/team`, { method: 'POST', body: { ...f, user_id: p.id } });
+      toast(`${p.display_name} entrou na equipe`);
+      setQ('');
+      setFound([]);
       reload();
     } catch (err) { toast(err.message); }
   };
@@ -69,13 +77,35 @@ export default function EventTeam({ eventId }) {
         ))}</tbody>
       </table></div>
 
-      <form className="row" style={{ gap: 8, alignItems: 'flex-end' }} onSubmit={add}>
-        <label className="field" style={{ flex: '1 1 240px' }}><span>E-mail do fotógrafo</span><input className="input" type="email" required value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} placeholder="fotografo@email.com" /></label>
-        <label className="field" style={{ width: 130 }}><span>Limite de fotos</span><input className="input" type="number" min="1" value={f.max_photos} onChange={(e) => setF({ ...f, max_photos: e.target.value })} placeholder="sem limite" /></label>
-        <label className="field" style={{ width: 200 }}><span>Envio até</span><input className="input" type="datetime-local" value={f.upload_until} onChange={(e) => setF({ ...f, upload_until: e.target.value })} /></label>
-        <button className="btn btn-accent"><UserPlus size={16} /> Adicionar</button>
-      </form>
-      <span className="tiny muted">A pessoa precisa ter conta de fotógrafo aprovada no site (com a chave Pix cadastrada para receber).{data.members.some((m) => m.upload_until) ? ` Prazos em horário de Brasília${data.members[0]?.upload_until ? `, ex.: ${dateTimeBR(data.members[0].upload_until)}` : ''}.` : ''}</span>
+      <div className="stack" style={{ gap: 10 }}>
+        <div className="row" style={{ gap: 8, alignItems: 'flex-end' }}>
+          <label className="field" style={{ flex: '1 1 260px' }}><span>Chamar fotógrafo do site</span>
+            <div style={{ position: 'relative' }}>
+              <Search size={16} style={{ position: 'absolute', left: 12, top: 14 }} color="#64748B" />
+              <input className="input" style={{ paddingLeft: 36 }} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Digite o nome (ou o e-mail) do fotógrafo" />
+            </div>
+          </label>
+          <label className="field" style={{ width: 130 }}><span>Limite de fotos</span><input className="input" type="number" min="1" value={f.max_photos} onChange={(e) => setF({ ...f, max_photos: e.target.value })} placeholder="sem limite" /></label>
+          <label className="field" style={{ width: 200 }}><span>Envio até</span><input className="input" type="datetime-local" value={f.upload_until} onChange={(e) => setF({ ...f, upload_until: e.target.value })} /></label>
+        </div>
+        {q.trim().length >= 2 && (
+          found.length ? (
+            <div className="stack" style={{ gap: 6 }}>
+              {found.map((p) => (
+                <div key={p.id} className="row" style={{ flexWrap: 'nowrap', gap: 10, padding: 8, border: '1px solid var(--line)', borderRadius: 10 }}>
+                  {p.avatar_path ? <img src={p.avatar_path} alt="" style={{ width: 36, height: 36, borderRadius: 99, objectFit: 'cover' }} />
+                    : <span style={{ width: 36, height: 36, borderRadius: 99, background: 'var(--surface-2)', display: 'grid', placeItems: 'center' }}><Camera size={16} /></span>}
+                  <div className="grow" style={{ minWidth: 0 }}><b className="small">{p.display_name}</b>{p.city && <div className="tiny muted">{p.city}</div>}</div>
+                  {rows.some((m) => m.id === p.id)
+                    ? <span className="badge">já está na equipe</span>
+                    : <button className="btn btn-sm btn-accent" onClick={() => add(p)}><UserPlus size={15} /> Chamar</button>}
+                </div>
+              ))}
+            </div>
+          ) : <span className="small muted">Nenhum fotógrafo aprovado com esse nome.</span>
+        )}
+      </div>
+      <span className="tiny muted">Só aparecem fotógrafos com cadastro aprovado no site. Cada um liga a própria pasta do Drive a este evento no painel dele (ou envia as fotos por lá) e recebe pelas fotos dele que venderem.{data.members.some((m) => m.upload_until) ? ` Prazos em horário de Brasília${data.members[0]?.upload_until ? `, ex.: ${dateTimeBR(data.members[0].upload_until)}` : ''}.` : ''}</span>
     </div>
   );
 }

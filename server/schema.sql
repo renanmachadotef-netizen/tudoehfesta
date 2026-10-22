@@ -237,7 +237,8 @@ create index if not exists orders_pending_idx on orders (created_at) where statu
 -- v5: pasta do Drive ligada a um evento especifico (kind = 'event') alem da pasta do ano (kind = 'year').
 alter table drive_sources add column if not exists kind text not null default 'year';
 alter table drive_sources add column if not exists event_id integer references events(id) on delete cascade;
-create unique index if not exists drive_sources_event_idx on drive_sources (event_id) where event_id is not null;
+-- (v18: uma pasta por fotografo em cada evento; antes era uma por evento)
+create unique index if not exists drive_sources_event_owner_idx on drive_sources (event_id, photographer_id) where event_id is not null;
 
 -- v6: pasta geral com varios anos (tudoehfesta/2003..2026/mes/evento): ano da fonte passa a ser opcional.
 alter table drive_sources alter column year drop not null;
@@ -358,3 +359,9 @@ create table if not exists photo_bibs (
   primary key (photo_id, bib)
 );
 create index if not exists photo_bibs_event_idx on photo_bibs (event_id, bib);
+
+-- v18: parcerias no evento. O dono marca "aceita parcerias", chama fotografos cadastrados e cada um liga
+-- a propria pasta do Drive ao evento (as fotos continuam sendo de quem as tirou).
+alter table events add column if not exists accepts_partners boolean not null default false;
+update events set accepts_partners = true where not accepts_partners and id in (select event_id from event_team);
+drop index if exists drive_sources_event_idx;

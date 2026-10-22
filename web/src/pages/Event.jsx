@@ -177,7 +177,13 @@ export default function EventPage() {
             <span className="row" style={{ gap: 5 }}><Calendar size={15} /> {dateBR(event.event_date, true)}</span>
             {(event.venue || event.city) && <span className="row" style={{ gap: 5 }}><MapPin size={15} /> {[event.venue, event.city].filter(Boolean).join(' · ')}</span>}
           </div>
-          {event.photographer_name && (
+          {event.photographers?.length > 1 ? (
+            <span className="row small" style={{ gap: 8 }}>
+              <Camera size={16} /> Fotos por {event.photographers.map((p, i) => (
+                <span key={p.slug}>{i > 0 && (i === event.photographers.length - 1 ? ' e ' : ', ')}<Link to={`/fotografo/${p.slug}`}><b>{p.name}</b></Link></span>
+              ))}
+            </span>
+          ) : event.photographer_name && (
             <Link to={`/fotografo/${event.photographer_slug}`} className="row small" style={{ gap: 8 }}>
               {event.photographer_avatar ? <img src={event.photographer_avatar} alt="" style={{ width: 28, height: 28, borderRadius: 99 }} /> : <Camera size={16} />}
               Fotos por <b>{event.photographer_name}</b>

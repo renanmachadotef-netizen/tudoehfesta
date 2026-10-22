@@ -157,6 +157,7 @@ function eventFields(b) {
     visibility: ['public', 'unlisted', 'password'].includes(b.visibility) ? b.visibility : 'public',
     protect_mode: PROTECT_MODES.includes(b.protect_mode) ? b.protect_mode : 'none',
     bib_search: !!b.bib_search,
+    accepts_partners: !!b.accepts_partners,
     password: cleanText(b.password, 60) || null,
     // "Publicar automaticamente em" chega como data e hora de Brasilia (sem fuso).
     publish_at: /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(String(b.publish_at || '')) ? `${b.publish_at}:00-03:00` : null,
@@ -177,8 +178,8 @@ r.post('/events', async (req, res) => {
       f.pack_price_cents, f.discount_tiers, f.status, f.hide_gallery, f.watermark_mode],
   );
   if (f.visibility === 'password' && !f.password) fail(400, 'Defina a senha do evento.');
-  await db.query('update events set visibility = $2, password_hash = $3, publish_at = $4, protect_mode = $5, bib_search = $6 where id = $1',
-    [ev.id, f.visibility, f.password ? await hashPassword(f.password) : null, f.publish_at, f.protect_mode, f.bib_search]);
+  await db.query('update events set visibility = $2, password_hash = $3, publish_at = $4, protect_mode = $5, bib_search = $6, accepts_partners = $7 where id = $1',
+    [ev.id, f.visibility, f.password ? await hashPassword(f.password) : null, f.publish_at, f.protect_mode, f.bib_search, f.accepts_partners]);
   res.json({ event: ev });
 });
 
@@ -224,8 +225,8 @@ r.put('/events/:id', async (req, res) => {
       f.discount_tiers, f.status, f.hide_gallery, f.watermark_mode],
   );
   if (f.visibility === 'password' && !f.password && !ev.password_hash) fail(400, 'Defina a senha do evento.');
-  await db.query('update events set visibility = $2, password_hash = coalesce($3, password_hash), publish_at = $4, protect_mode = $5, bib_search = $6 where id = $1',
-    [ev.id, f.visibility, f.password ? await hashPassword(f.password) : null, f.status === 'draft' ? f.publish_at : null, f.protect_mode, f.bib_search]);
+  await db.query('update events set visibility = $2, password_hash = coalesce($3, password_hash), publish_at = $4, protect_mode = $5, bib_search = $6, accepts_partners = $7 where id = $1',
+    [ev.id, f.visibility, f.password ? await hashPassword(f.password) : null, f.status === 'draft' ? f.publish_at : null, f.protect_mode, f.bib_search, f.accepts_partners]);
   // Protecao da previa mudou: refaz as previas. (Busca por numero ligada: a fila le as fotos com bib_done = false.)
   if ((ev.protect_mode || 'none') !== f.protect_mode) await db.query('update photos set needs_render = true where event_id = $1', [ev.id]);
 
@@ -722,6 +723,20 @@ r.get('/acervo', async (req, res) => {
 });
 
 // ----- Equipe do evento (varios fotografos) -----
+// Fotografos aprovados, pelo nome (ou pelo e-mail completo), para chamar como parceiro num evento.
+r.get('/photographers/search', async (req, res) => {
+  const q = cleanText(req.query.q, 80);
+  if (!q || q.length < 2) return res.json({ photographers: [] });
+  const rows = await db.many(
+    `select u.id, ph.display_name, ph.slug, ph.city, ph.avatar_path from photographers ph join users u on u.id = ph.user_id
+      where ph.status = 'approved' and u.id <> $2
+        and (ph.display_name ilike '%' || $1 || '%' or u.name ilike '%' || $1 || '%' or lower(u.email) = lower($1))
+      order by ph.display_name limit 10`,
+    [q, req.user.id],
+  );
+  res.json({ photographers: rows });
+});
+
 r.get('/events/:id/team', async (req, res) => {
   const ev = await ownEvent(req, req.params.id);
   const stats = `(select count(*) from photos p where p.event_id = $1 and p.photographer_id = u.id)::int as photos,
@@ -751,10 +766,12 @@ const teamLimits = (b) => ({
 
 r.post('/events/:id/team', async (req, res) => {
   const ev = await ownEvent(req, req.params.id);
+  if (!ev.accepts_partners) fail(400, 'Marque “Aceita parcerias” no evento primeiro.');
+  // Pelo cadastro escolhido na busca (user_id) ou pelo e-mail.
   const email = String(req.body?.email || '').trim().toLowerCase();
   const u = await db.one(
-    `select u.id, u.role, ph.status from users u left join photographers ph on ph.user_id = u.id where u.email = $1`,
-    [email],
+    `select u.id, u.role, ph.status from users u left join photographers ph on ph.user_id = u.id where ${req.body?.user_id ? 'u.id = $1' : 'u.email = $1'}`,
+    [req.body?.user_id ? Number(req.body.user_id) : email],
   );
   if (!u) fail(404, 'Não achamos uma conta com este e-mail. Peça para a pessoa se cadastrar em "Seja fotógrafo" primeiro.');
   if (u.id === ev.photographer_id) fail(400, 'Você já é o dono do evento.');
@@ -779,6 +796,8 @@ r.put('/events/:id/team/:userId', async (req, res) => {
 r.delete('/events/:id/team/:userId', async (req, res) => {
   const ev = await ownEvent(req, req.params.id);
   await db.query('delete from event_team where event_id = $1 and user_id = $2', [ev.id, Number(req.params.userId)]);
+  // A pasta do Drive que a pessoa ligou ao evento deixa de importar.
+  await db.query('delete from drive_sources where event_id = $1 and photographer_id = $2', [ev.id, Number(req.params.userId)]);
   res.json({ ok: true });
 });
 
@@ -856,10 +875,19 @@ r.get('/pool', async (req, res) => {
 
 // Puxa para este evento as fotos marcadas com a tag escolhida (um grupo do acervo).
 r.post('/events/:id/attach', async (req, res) => {
-  const ev = await ownEvent(req, req.params.id);
+  const { ev, role, member } = await teamEvent(req, req.params.id);
   if (ev.kind === 'pool') fail(400, 'Este já é um grupo do acervo. Cadastre um evento e puxe as fotos para ele.');
   const other = await db.one(`select id, title, drive_folder_id, drive_folder_path, photographer_id from events where id = $1 and kind = 'pool'`, [Number(req.body?.pool_event_id)]);
-  if (!other || (other.photographer_id !== req.user.id && req.user.role !== 'admin')) fail(404, 'Grupo do acervo não encontrado.');
+  if (!other || (other.photographer_id !== req.user.id && (role === 'team' || req.user.role !== 'admin'))) fail(404, 'Grupo do acervo não encontrado.');
+  if (role === 'team') {
+    // O parceiro so traz as fotos; a pasta do evento continua sendo a do dono.
+    const n = (await db.one('select count(*)::int as n from photos where event_id = $1', [other.id])).n;
+    await checkTeamRoom(ev, member, req.user.id, n);
+    await mergeInto(other, ev);
+    // Fotos novas que o parceiro colocar depois nessa pasta tambem vem para o evento.
+    if (other.drive_folder_id) await linkPartnerFolder(ev, req.user.id, other.drive_folder_id, other.drive_folder_path || other.title, true, false);
+    return res.json({ ok: true, photos: n, from: other.drive_folder_path || other.title });
+  }
   if (ev.drive_folder_id && other.drive_folder_id && ev.drive_folder_id !== other.drive_folder_id) {
     fail(409, 'Este evento já está ligado a outra pasta. Desligue a pasta atual antes.');
   }
@@ -871,23 +899,65 @@ r.post('/events/:id/attach', async (req, res) => {
 });
 
 r.get('/events/:id/drive', async (req, res) => {
-  const ev = await ownEvent(req, req.params.id);
-  const s = await db.one(
-    `select s.*, (select count(*) from photos p where p.event_id = s.event_id)::int as photos,
-            (select count(*) from photos p where p.event_id = s.event_id and (p.needs_faces or p.needs_render))::int as pending,
-            (select count(*) from drive_skips k where k.source_id = s.id)::int as skipped
-       from drive_sources s where s.event_id = $1`,
-    [ev.id],
-  );
-  res.json({ info: driveInfo(), source: s, folder_id: ev.drive_folder_id, folder_path: ev.drive_folder_path, kind: ev.kind,
-    photos: (await db.one('select count(*)::int as n from photos where event_id = $1', [ev.id])).n });
+  const { ev, role } = await teamEvent(req, req.params.id);
+  const me = role === 'owner' ? ev.photographer_id : req.user.id;
+  const SRC = `s.*, (select count(*) from photos p where p.event_id = s.event_id and p.photographer_id = s.photographer_id)::int as photos,
+            (select count(*) from photos p where p.event_id = s.event_id and p.photographer_id = s.photographer_id and (p.needs_faces or p.needs_render))::int as pending,
+            (select count(*) from drive_skips k where k.source_id = s.id)::int as skipped`;
+  const s = await db.one(`select ${SRC} from drive_sources s where s.event_id = $1 and s.photographer_id = $2`, [ev.id, me]);
+  // O dono ve tambem as pastas que os parceiros ligaram.
+  const partners = role === 'owner' ? await db.many(
+    `select ${SRC}, coalesce(ph.display_name, u.name) as photographer_name from drive_sources s join users u on u.id = s.photographer_id
+       left join photographers ph on ph.user_id = s.photographer_id where s.event_id = $1 and s.photographer_id <> $2 order by s.id`,
+    [ev.id, ev.photographer_id],
+  ) : [];
+  res.json({
+    info: driveInfo(), role, source: s, partners, kind: ev.kind,
+    folder_id: role === 'owner' ? ev.drive_folder_id : s?.folder_id || null,
+    folder_path: role === 'owner' ? ev.drive_folder_path : s?.name || null,
+    photos: (await db.one(`select count(*)::int as n from photos where event_id = $1 and ($2::int is null or photographer_id = $2)`, [ev.id, role === 'team' ? req.user.id : null])).n,
+  });
 });
 
+// Pasta do Drive do parceiro ligada ao evento (uma por fotografo). replace = trocar a pasta que ele ja tinha ligado.
+async function linkPartnerFolder(ev, userId, folderId, name, keepInDrive, replace) {
+  await db.query(
+    `insert into drive_sources (photographer_id, folder_id, name, year, kind, event_id, category_id, price_cents, pack_price_cents,
+       auto_publish, hide_gallery, watermark_mode, keep_in_drive, last_status)
+     values ($1, $2, $3, $4, 'event', $5, $6, $7, $8, false, $9, $10, $11, 'na fila')
+     on conflict (event_id, photographer_id) where event_id is not null do ${replace
+       ? "update set folder_id = excluded.folder_id, name = excluded.name, active = true, last_status = 'na fila', last_error = null"
+       : 'nothing'}`,
+    [userId, folderId, name, Number(String(ev.event_date).slice(0, 4)), ev.id, ev.category_id, ev.price_cents,
+      ev.pack_price_cents, ev.hide_gallery, ev.watermark_mode, keepInDrive],
+  );
+}
+
+// Parceiro: dentro do prazo e do limite de fotos combinados com o dono do evento.
+async function checkTeamRoom(ev, member, userId, adding = 0) {
+  if (member.upload_until && new Date(member.upload_until) < new Date()) fail(403, 'O prazo de envio deste evento terminou.');
+  if (member.max_photos) {
+    const n = (await db.one('select count(*)::int as n from photos where event_id = $1 and photographer_id = $2', [ev.id, userId])).n;
+    if (n + adding > member.max_photos) fail(403, `O limite combinado é de ${member.max_photos} fotos (você já tem ${n} neste evento).`);
+  }
+}
+
 r.post('/events/:id/drive', async (req, res) => {
-  const ev = await ownEvent(req, req.params.id);
+  const { ev, role, member } = await teamEvent(req, req.params.id);
   if (!driveInfo().configured) fail(400, 'A integração com o Google Drive ainda não foi configurada no servidor.');
   const folderId = parseFolderId(req.body?.link);
   if (!folderId) fail(400, 'Cole o link de uma pasta do Google Drive.');
+  const taken = await db.one('select photographer_id from drive_sources where event_id = $1 and folder_id = $2 and photographer_id <> $3', [ev.id, folderId, role === 'owner' ? ev.photographer_id : req.user.id]);
+  if (taken || (role === 'team' && ev.drive_folder_id === folderId)) fail(409, 'Essa pasta já está ligada a este evento por outro fotógrafo.');
+  if (role === 'team') {
+    await checkTeamRoom(ev, member, req.user.id);
+    const name = await folderName(folderId);
+    // Fotos dessa pasta que ja estavam no acervo do proprio parceiro vem para o evento.
+    const own = await db.one(`select id, title, drive_folder_path from events where drive_folder_id = $1 and kind = 'pool' and photographer_id = $2`, [folderId, req.user.id]);
+    if (own) await mergeInto(own, ev);
+    await linkPartnerFolder(ev, req.user.id, folderId, name, req.body?.keep_in_drive !== false, true);
+    return res.json({ ok: true, name, merged: own ? own.title : null });
+  }
   const name = await folderName(folderId);
   const other = await db.one('select id, title, drive_folder_path from events where drive_folder_id = $1 and id <> $2', [folderId, ev.id]);
   if (other) await mergeInto(other, ev);
@@ -896,7 +966,7 @@ r.post('/events/:id/drive', async (req, res) => {
     `insert into drive_sources (photographer_id, folder_id, name, year, kind, event_id, category_id, price_cents, pack_price_cents,
        auto_publish, hide_gallery, watermark_mode, keep_in_drive, last_status)
      values ($1, $2, $3, $4, 'event', $5, $6, $7, $8, false, $9, $10, $11, 'na fila')
-     on conflict (event_id) where event_id is not null do update set folder_id = excluded.folder_id, name = excluded.name,
+     on conflict (event_id, photographer_id) where event_id is not null do update set folder_id = excluded.folder_id, name = excluded.name,
        active = true, last_status = 'na fila', last_error = null`,
     [ev.photographer_id, folderId, name, Number(String(ev.event_date).slice(0, 4)), ev.id, ev.category_id, ev.price_cents,
       ev.pack_price_cents, ev.hide_gallery, ev.watermark_mode, req.body?.keep_in_drive !== false],
@@ -904,10 +974,17 @@ r.post('/events/:id/drive', async (req, res) => {
   res.json({ ok: true, name, merged: other ? other.title : null });
 });
 
+// Desliga a pasta: o parceiro desliga a dele; o dono desliga a propria ou (?user=) a de um parceiro.
+// As fotos ja importadas continuam no evento.
 r.delete('/events/:id/drive', async (req, res) => {
-  const ev = await ownEvent(req, req.params.id);
-  await db.query('delete from drive_sources where event_id = $1', [ev.id]);
-  if (req.query.release === '1') await db.query('update events set drive_folder_id = null, drive_folder_path = null where id = $1', [ev.id]);
+  const { ev, role } = await teamEvent(req, req.params.id);
+  if (role === 'team') {
+    await db.query('delete from drive_sources where event_id = $1 and photographer_id = $2', [ev.id, req.user.id]);
+    return res.json({ ok: true });
+  }
+  const who = req.query.user ? Number(req.query.user) : ev.photographer_id;
+  await db.query('delete from drive_sources where event_id = $1 and photographer_id = $2', [ev.id, who]);
+  if (who === ev.photographer_id && req.query.release === '1') await db.query('update events set drive_folder_id = null, drive_folder_path = null where id = $1', [ev.id]);
   res.json({ ok: true });
 });
 

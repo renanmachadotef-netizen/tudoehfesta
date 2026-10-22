@@ -15,7 +15,7 @@ const r = Router();
 export const EVENT_CARD = `
   e.id, e.slug, e.title, e.event_date, e.city, e.venue, e.status, e.price_cents, e.pack_price_cents,
   e.discount_tiers, e.category_id, c.name as category_name, c.slug as category_slug, e.hide_gallery, e.watermark_mode, e.kind,
-  e.visibility, e.publish_at, e.protect_mode, e.bib_search,
+  e.visibility, e.publish_at, e.protect_mode, e.bib_search, e.accepts_partners,
   ph.display_name as photographer_name, ph.slug as photographer_slug, ph.avatar_path as photographer_avatar,
   (select count(*) from photos p where p.event_id = e.id and p.key is not null and not p.hidden)::int as photo_count,
   cv.id as cover_id, cv.key as cover_key`;
@@ -159,7 +159,12 @@ r.get('/events/:slug', async (req, res) => {
     return res.json({ event: { ...card, cover: null, cover_thumb: null, locked: true } });
   }
   db.query('update events set views = views + 1 where id = $1', [row.id]).catch(() => {});
-  res.json({ event: publicCard(row) });
+  const photographers = await db.many(
+    `select ph.display_name as name, ph.slug, count(*)::int as photos from photos p join photographers ph on ph.user_id = p.photographer_id
+      where p.event_id = $1 and p.key is not null and not p.hidden group by ph.display_name, ph.slug order by count(*) desc`,
+    [row.id],
+  );
+  res.json({ event: { ...publicCard(row), photographers } });
 });
 
 // Busca por numero de peito dentro do evento.

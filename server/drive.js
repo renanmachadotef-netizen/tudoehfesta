@@ -325,6 +325,14 @@ async function eventForGroup(source, g) {
     const ev = await db.one('select id, event_date from events where id = $1', [g.eventId]);
     if (ev) return { ...ev, tag: g.folder.name };
   }
+  // Pasta que o fotografo ligou a um evento (dele ou como parceiro) e que tambem esta dentro da pasta do ano:
+  // as fotos vao para o evento, nao para o acervo.
+  const linked = await db.one(
+    `select e.id, e.event_date from drive_sources s join events e on e.id = s.event_id
+      where s.kind = 'event' and s.active and s.folder_id = $1 and s.photographer_id = $2 limit 1`,
+    [g.folder.id, source.photographer_id],
+  );
+  if (linked) return { ...linked, tag: g.folder.name };
   const folderPath = [...g.path, g.folder.name].join(' / ');
   const found = await db.one('select id, event_date, kind, title from events where drive_folder_id = $1', [g.folder.id]);
   if (found) {
@@ -456,6 +464,18 @@ export async function previewSource(source) {
   };
 }
 
+// Quantas fotos o fotografo ainda pode colocar no evento: sem limite no evento dele; como parceiro,
+// so enquanto estiver na equipe, dentro do prazo e do limite de fotos.
+async function teamRoom(eventId, userId) {
+  const ev = await db.one('select photographer_id from events where id = $1', [eventId]);
+  if (!ev || ev.photographer_id === userId) return Infinity;
+  const m = await db.one('select max_photos, upload_until from event_team where event_id = $1 and user_id = $2', [eventId, userId]);
+  if (!m || (m.upload_until && new Date(m.upload_until) < new Date())) return 0;
+  if (!m.max_photos) return Infinity;
+  const n = (await db.one('select count(*)::int as n from photos where event_id = $1 and photographer_id = $2', [eventId, userId])).n;
+  return m.max_photos - n;
+}
+
 export async function syncSource(sourceId) {
   const source = await db.one('select * from drive_sources where id = $1', [sourceId]);
   if (!source) return;
@@ -526,10 +546,12 @@ export async function syncSource(sourceId) {
         continue;
       }
       const event = await eventForGroup(source, g);
+      const room = await teamRoom(event.id, source.photographer_id);
+      if (room <= 0) continue;
       const folderPath = [...g.path, g.folder.name].join(' / ');
       progress.sync.folder = folderPath;
       const before = imported;
-      const take = fresh.slice(0, budget);
+      const take = fresh.slice(0, Math.min(budget, room));
       remaining += fresh.length - take.length;
       budget -= take.length;
       // Algumas fotos ao mesmo tempo: o tempo vai quase todo em baixar do Drive, nao em processar.
