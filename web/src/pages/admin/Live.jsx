@@ -77,6 +77,50 @@ function NowCard({ d, now }) {
   );
 }
 
+// Retrato da pasta raiz (ultima leitura do Drive): pastas e fotos por ano, quantas ja estao no site e quantas faltam.
+function DriveScan({ d, now }) {
+  const src = d.drive.sources.find((s) => s.scan && s.kind !== 'event');
+  if (!src) return null;
+  const sc = src.scan;
+  const run = d.drive.running?.source_id === src.id ? d.drive.running : null;
+  const doneNow = run ? run.imported + run.skipped : 0;
+  const pending = Math.max(0, sc.pending - doneNow);
+  const total = sc.files;
+  const done = total - pending;
+  const perMin = d.rates.import.m10 / 10 || d.rates.import.m60 / 60;
+  const eta = pending && perMin > 0 ? pending / perMin : null;
+  const etaTxt = eta == null ? null : eta < 60 ? `~${Math.ceil(eta)} min` : `~${Math.floor(eta / 60)} h ${Math.round(eta % 60)} min`;
+  return (
+    <div className="card stack" style={{ gap: 12 }}>
+      <div className="row between">
+        <h3 className="row" style={{ gap: 8 }}><HardDrive size={17} /> Pasta “{src.name}” no Drive</h3>
+        <span className="tiny muted">lida {ago(sc.at, now)}</span>
+      </div>
+      <div className="kpis">
+        <div className="kpi"><span>Pastas de evento</span><b>{sc.folders.toLocaleString('pt-BR')}</b><small>em {sc.years.length} ano(s){sc.ignored ? ` · ${sc.ignored} ignorada(s) pelo nome` : ''}</small></div>
+        <div className="kpi"><span>Fotos no Drive</span><b>{total.toLocaleString('pt-BR')}</b></div>
+        <div className="kpi"><span>Já tratadas</span><b>{done.toLocaleString('pt-BR')}</b><small>{total ? Math.round((done / total) * 100) : 100}% (no site ou recusadas)</small></div>
+        <div className="kpi accent"><span>Faltam</span><b>{pending.toLocaleString('pt-BR')}</b><small>{pending ? (etaTxt ? `previsão ${etaTxt} no ritmo atual` : 'aguardando a próxima rodada') : 'tudo em dia'}</small></div>
+      </div>
+      <div className="live-bar"><i style={{ width: `${total ? Math.round((done / total) * 100) : 100}%` }} /></div>
+      <div className="table-wrap"><table className="table">
+        <thead><tr><th>Ano</th><th className="num">Pastas</th><th className="num">Fotos no Drive</th><th className="num">Tratadas</th><th className="num">Faltam</th><th style={{ width: '30%' }}></th></tr></thead>
+        <tbody>{sc.years.map((y) => {
+          const left = y.files - y.done;
+          return (
+            <tr key={y.year}>
+              <td><b>{y.year}</b></td><td className="num">{y.folders}</td><td className="num">{y.files.toLocaleString('pt-BR')}</td>
+              <td className="num">{y.done.toLocaleString('pt-BR')}</td><td className="num">{left ? left.toLocaleString('pt-BR') : '—'}</td>
+              <td><div className="live-bar"><i style={{ width: `${y.files ? Math.round((y.done / y.files) * 100) : 100}%` }} /></div></td>
+            </tr>
+          );
+        })}</tbody>
+      </table></div>
+      <span className="tiny muted">Os números por ano são da leitura “{ago(sc.at, now)}” (o Drive é relido a cada rodada de importação); o total “Faltam” já desconta a rodada em andamento.</span>
+    </div>
+  );
+}
+
 export default function Live() {
   const [d, setD] = useState(null);
   const [error, setError] = useState(null);
@@ -133,6 +177,8 @@ export default function Live() {
         <div className="kpi"><span><Users size={14} style={{ verticalAlign: -2 }} /> Clientes</span><b>{t.customers}</b><small>{t.face_users} com rosto cadastrado · {t.blur_users} pediram para borrar</small></div>
         <div className="kpi accent"><span><ShoppingBag size={14} style={{ verticalAlign: -2 }} /> Vendido hoje</span><b>{money(d.orders.paid_today_cents)}</b><small>{d.orders.paid_today} pagos · {d.orders.today} pedidos hoje · {d.orders.pending} aguardando</small></div>
       </div>
+
+      <DriveScan d={d} now={now} />
 
       <div className="live-grid">
         <div className="card stack" style={{ gap: 10 }}>

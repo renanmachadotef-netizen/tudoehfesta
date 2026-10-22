@@ -181,9 +181,15 @@ function Payouts() {
   );
 }
 
+const MONTH_NAMES = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
+
 function Events() {
   const { toast } = useSite();
   const { data, loading, error, reload } = useApi('/admin/events');
+  const [year, setYear] = useState('');
+  const [month, setMonth] = useState('');
+  const [kind, setKind] = useState('all');
+  const [q, setQ] = useState('');
   const purge = async (e) => {
     const typed = prompt(`Excluir DEFINITIVAMENTE "${e.title}", com todas as fotos e os pedidos dele? Isso não pode ser desfeito.\nAs fotos continuam no Google Drive e não voltam na próxima sincronização.\n\nDigite o nome do evento para confirmar:`);
     if (typed == null) return;
@@ -200,12 +206,53 @@ function Events() {
   };
   if (loading) return <Loading />;
   if (error) return <ErrorBox error={error} />;
+  const ym = (e) => String(e.event_date).slice(0, 7);
+  const years = [...new Set(data.events.map((e) => String(e.event_date).slice(0, 4)))].sort().reverse();
+  const months = [...new Set(data.events.filter((e) => !year || String(e.event_date).startsWith(year)).map((e) => Number(String(e.event_date).slice(5, 7))))].sort((a, b) => a - b);
+  const text = q.trim().toLowerCase();
+  const list = data.events.filter((e) => (!year || String(e.event_date).startsWith(year))
+    && (!month || Number(String(e.event_date).slice(5, 7)) === Number(month))
+    && (kind === 'all' || e.kind === kind)
+    && (!text || e.title.toLowerCase().includes(text)));
+  const groups = [];
+  for (const e of list) {
+    const k = ym(e);
+    let g = groups[groups.length - 1];
+    if (!g || g.key !== k) groups.push((g = { key: k, items: [] }));
+    g.items.push(e);
+  }
+  const label = (k) => { const m = MONTH_NAMES[Number(k.slice(5, 7)) - 1]; return `${m[0].toUpperCase()}${m.slice(1)} de ${k.slice(0, 4)}`; };
   return (
     <div className="stack">
       <PageHead title="Todos os eventos"><Link to="/painel/acervo" className="btn btn-sm btn-ghost">Ver acervo por ano</Link><Link to="/painel/eventos/novo" className="btn btn-sm btn-accent">Novo evento (meu)</Link></PageHead>
+      <div className="stack" style={{ gap: 10 }}>
+        <div className="chips">
+          <button className={`chip${!year ? ' active' : ''}`} onClick={() => { setYear(''); setMonth(''); }}>Todos os anos <em>{data.events.length}</em></button>
+          {years.map((y) => (
+            <button key={y} className={`chip${year === y ? ' active' : ''}`} onClick={() => { setYear(y); setMonth(''); }}>
+              {y} <em>{data.events.filter((e) => String(e.event_date).startsWith(y)).length}</em>
+            </button>
+          ))}
+        </div>
+        <div className="row" style={{ gap: 8 }}>
+          <select className="select" style={{ height: 36, width: 170 }} value={month} onChange={(e) => setMonth(e.target.value)}>
+            <option value="">Todos os meses</option>
+            {months.map((m) => <option key={m} value={m}>{MONTH_NAMES[m - 1]}</option>)}
+          </select>
+          <select className="select" style={{ height: 36, width: 190 }} value={kind} onChange={(e) => setKind(e.target.value)}>
+            <option value="all">Acervo e eventos</option>
+            <option value="pool">Só pastas do acervo</option>
+            <option value="event">Só eventos cadastrados</option>
+          </select>
+          <input className="input" style={{ height: 36, width: 220 }} placeholder="Buscar pelo nome" value={q} onChange={(e) => setQ(e.target.value)} />
+          <span className="small muted">{list.length} de {data.events.length}</span>
+        </div>
+      </div>
       <div className="table-wrap"><table className="table">
         <thead><tr><th>Evento</th><th>Fotógrafo</th><th>Exibição no site</th><th>Status</th><th className="num">Fotos</th><th className="num">Rostos</th><th className="num">Visitas</th><th className="num">Vendido</th><th></th></tr></thead>
-        <tbody>{data.events.map((e) => (
+        <tbody>{groups.map((g) => [
+          <tr key={g.key} className="group-row"><td colSpan={9}><b>{label(g.key)}</b> <span className="muted small">· {g.items.length} {g.items.length === 1 ? 'pasta/evento' : 'pastas/eventos'} · {g.items.reduce((n, e) => n + e.photo_count, 0).toLocaleString('pt-BR')} fotos</span></td></tr>,
+          ...g.items.map((e) => (
           <tr key={e.id}>
             <td><Link to={`/painel/eventos/${e.id}`} style={{ fontWeight: 600 }}>{e.title}</Link><div className="tiny muted">{dateBR(e.event_date)} · {e.kind === 'pool' ? 'acervo do ano' : e.category_name || 'sem categoria'}</div></td>
             <td className="small">{e.photographer_name}</td>
@@ -216,7 +263,8 @@ function Events() {
             <td className="num">{e.photo_count}</td><td className="num">{e.face_count}</td><td className="num">{e.views}</td><td className="num">{money(e.gross_cents)}</td>
             <td><button className="btn btn-sm btn-danger" onClick={() => purge(e)}>Excluir</button></td>
           </tr>
-        ))}</tbody>
+          )),
+        ])}</tbody>
       </table></div>
     </div>
   );

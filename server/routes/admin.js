@@ -123,7 +123,7 @@ r.get('/events', async (_req, res) => {
             (select count(*) from faces f where f.event_id = e.id)::int as face_count,
             (select coalesce(sum(oi.price_cents), 0) from order_items oi join orders o on o.id = oi.order_id and o.status = 'paid'
               where oi.event_id = e.id)::int8 as gross_cents
-       ${EVENT_JOINS} order by e.event_date desc, e.id desc limit 500`,
+       ${EVENT_JOINS} order by e.event_date desc, e.id desc limit 3000`,
   );
   res.json({ events: rows.map(eventCard) });
 });
@@ -384,7 +384,7 @@ r.get('/live', async (_req, res) => {
               (select coalesce(sum(bytes), 0) from photos where original_path not like 'drive:%')::bigint as server_originals_bytes`,
     ),
     db.many(
-      `select s.id, s.name, s.kind, s.active, s.last_status, s.last_error, s.last_sync_at, e.title as event_title,
+      `select s.id, s.name, s.kind, s.active, s.last_status, s.last_error, s.last_sync_at, s.scan, e.title as event_title,
               (select count(*) from photos p join events ev on ev.id = p.event_id where ev.drive_source_id = s.id or ev.id = s.event_id)::int as photos,
               (select count(*) from drive_skips k where k.source_id = s.id)::int as skipped
          from drive_sources s left join events e on e.id = s.event_id order by s.kind desc, s.id`,

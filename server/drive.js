@@ -477,6 +477,25 @@ export async function syncSource(sourceId) {
     )).map((r) => r.drive_file_id));
     let budget = FILES_PER_RUN;
     const pendingAll = groups.reduce((n, g) => n + g.files.filter((f) => !known.has(f.id)).length, 0);
+    // Retrato da pasta para o painel "Ao vivo": quantas pastas e fotos existem, por ano, e quantas faltam.
+    const byYear = new Map();
+    for (const g of groups) {
+      const y = (describeGroup(source, g).date || '').slice(0, 4) || 'sem data';
+      const row = byYear.get(y) || { year: y, folders: 0, files: 0, done: 0 };
+      row.folders++;
+      row.files += g.files.length;
+      row.done += g.files.filter((f) => known.has(f.id)).length;
+      byYear.set(y, row);
+    }
+    const scan = {
+      at: new Date().toISOString(),
+      folders: groups.length,
+      files: groups.reduce((n, g) => n + g.files.length, 0),
+      pending: pendingAll,
+      ignored: (groups.ignored || []).length,
+      years: [...byYear.values()].sort((a, b) => String(b.year).localeCompare(String(a.year))),
+    };
+    await db.query('update drive_sources set scan = $2::jsonb where id = $1', [source.id, JSON.stringify(scan)]);
     progress.sync = { ...progress.sync, phase: 'importando', total: Math.min(pendingAll, FILES_PER_RUN), pending_all: pendingAll };
     if (pendingAll) activity('drive', `"${source.name}": ${pendingAll} fotos novas encontradas no Drive`);
     for (const g of groups) {

@@ -285,3 +285,6 @@ alter table photos add column if not exists hidden boolean not null default fals
 
 -- v10: sinal de vida da sincronizacao (duas copias do servidor durante um deploy nao importam a mesma pasta)
 alter table drive_sources add column if not exists sync_heartbeat timestamptz;
+
+-- v11: retrato da pasta ligada na ultima leitura (pastas e fotos por ano, ja importadas x faltando)
+alter table drive_sources add column if not exists scan jsonb;
