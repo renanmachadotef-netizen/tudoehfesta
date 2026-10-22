@@ -4,6 +4,7 @@ import { Home, Search, ShoppingBag, User, Images, ScanFace, LogOut, LayoutDashbo
 import { useSite } from '../lib/site.jsx';
 import { useCart, attachCartSync } from '../lib/cart.js';
 import { api } from '../lib/api.js';
+import { consent, loadTrackers, track } from '../lib/track.js';
 
 export function Logo({ light = false }) {
   const { site } = useSite();
@@ -157,6 +158,24 @@ export function Footer() {
   );
 }
 
+// Aviso de cookies de marketing: so aparece se o admin configurou Pixel ou Tag Manager.
+function CookieBanner() {
+  const { site } = useSite();
+  const [answer, setAnswer] = useState(() => consent.get());
+  useEffect(() => { loadTrackers(site); }, [site, answer]);
+  if (answer || !(site?.fb_pixel || site?.gtm_id)) return null;
+  const pick = (v) => { consent.set(v); setAnswer(v); };
+  return (
+    <div className="cookie-banner" role="dialog" aria-label="Cookies">
+      <span className="small">Usamos cookies de marketing (Facebook e Google) para medir anúncios. Sua selfie nunca é usada nisso. <Link to="/privacidade" style={{ textDecoration: 'underline' }}>Saiba mais</Link></span>
+      <div className="row" style={{ gap: 8, flexWrap: 'nowrap' }}>
+        <button className="btn btn-sm btn-ghost" onClick={() => pick('no')}>Recusar</button>
+        <button className="btn btn-sm" onClick={() => pick('yes')}>Aceitar</button>
+      </div>
+    </div>
+  );
+}
+
 export default function Layout() {
   const { pathname } = useLocation();
   const { user } = useSite();
@@ -166,6 +185,7 @@ export default function Layout() {
     // Contador de visitas proprio (sem cookie); o painel nao conta.
     if (!panel) {
       try { navigator.sendBeacon('/api/track', new Blob([JSON.stringify({ path: pathname })], { type: 'application/json' })); } catch { /* sem beacon */ }
+      track('PageView');
     }
   }, [pathname]); // eslint-disable-line react-hooks/exhaustive-deps
   const panel = pathname.startsWith('/painel') || pathname.startsWith('/admin');
@@ -175,6 +195,7 @@ export default function Layout() {
       <main><Outlet /></main>
       {!panel && <Footer />}
       <MobileNav />
+      {!panel && <CookieBanner />}
     </>
   );
 }

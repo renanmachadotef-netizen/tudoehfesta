@@ -7,6 +7,7 @@ import { cart, useCart } from '../lib/cart.js';
 import { money } from '../lib/format.js';
 import { Empty } from '../components/Layout.jsx';
 import { AuthForm } from './Auth.jsx';
+import { track } from '../lib/track.js';
 
 export default function Cart() {
   useTitle('Carrinho');
@@ -54,6 +55,7 @@ export default function Cart() {
     setBusy(true);
     setError('');
     try {
+      track('InitiateCheckout', { value: (price?.total || 0) / 100, num_items: ids.length });
       const d = await api('/orders', { method: 'POST', body: { photoIds: ids, coupon, method, cpf, phone: phone || undefined } });
       cart.clear();
       if (d.redirect) window.location.href = d.redirect;

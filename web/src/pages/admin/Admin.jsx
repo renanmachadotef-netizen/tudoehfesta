@@ -458,7 +458,7 @@ function SettingsPage() {
           price_cents: toCents(form.arch_price),
           years: Object.fromEntries(form.arch_years.filter((r) => /^\d{4}$/.test(String(r.year).trim()) && toCents(r.price) >= 100).map((r) => [String(r.year).trim(), toCents(r.price)])),
         },
-        site: { whatsapp: form.whatsapp, instagram: form.instagram, tagline: form.tagline, about: form.about, pix_key: form.pix_key, pix_name: form.pix_name, since: form.since },
+        site: { whatsapp: form.whatsapp, instagram: form.instagram, tagline: form.tagline, about: form.about, pix_key: form.pix_key, pix_name: form.pix_name, since: form.since, fb_pixel: form.fb_pixel || '', gtm_id: form.gtm_id || '' },
       },
     });
     toast('Configurações salvas');
@@ -540,6 +540,8 @@ function SettingsPage() {
           <label className="field"><span>Instagram</span><input className="input" value={form.instagram || ''} onChange={set('instagram')} /></label>
           <label className="field"><span>Frase</span><input className="input" value={form.tagline || ''} onChange={set('tagline')} /></label>
           <label className="field"><span>Desde (ano)</span><input className="input" type="number" value={form.since || ''} onChange={set('since')} /></label>
+          <label className="field"><span>Pixel do Facebook (ID)</span><input className="input" inputMode="numeric" value={form.fb_pixel || ''} onChange={set('fb_pixel')} placeholder="123456789012345" /><small>Gerenciador de Eventos da Meta → Fontes de dados → ID do pixel.</small></label>
+          <label className="field"><span>Google Tag Manager (ID)</span><input className="input" value={form.gtm_id || ''} onChange={set('gtm_id')} placeholder="GTM-XXXXXXX" /><small>Só carregam depois que o visitante aceita os cookies de marketing.</small></label>
         </div>
         <div className="row">
           <label className="btn btn-soft btn-sm"><Camera size={14} /> Enviar logo<input type="file" accept="image/*" hidden onChange={(e) => e.target.files[0] && upload('logo', e.target.files[0])} /></label>

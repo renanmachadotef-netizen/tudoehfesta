@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { track } from '../lib/track.js';
 import { Link, useLocation, useParams } from 'react-router-dom';
 import { CheckCircle2, Clock, Copy, Download, MessageCircle, XCircle } from 'lucide-react';
 import { api } from '../lib/api.js';
@@ -11,6 +12,15 @@ export default function Order() {
   const { code } = useParams();
   const { user, ready, toast } = useSite();
   const [order, setOrder] = useState(null);
+  // Compra confirmada: avisa o Pixel/Tag Manager uma unica vez por pedido.
+  const sent = useRef(false);
+  useEffect(() => {
+    if (order?.status !== 'paid' || sent.current) return;
+    const k = `tef_purchase_${order.code}`;
+    try { if (localStorage.getItem(k)) return; localStorage.setItem(k, '1'); } catch { /* sem armazenamento */ }
+    sent.current = true;
+    track('Purchase', { value: order.total_cents / 100, transaction_id: order.code, num_items: order.items?.length || 0 });
+  }, [order?.status]); // eslint-disable-line react-hooks/exhaustive-deps
   const [error, setError] = useState(null);
   const { search } = useLocation();
   useTitle(`Pedido ${code}`);

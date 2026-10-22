@@ -476,6 +476,8 @@ r.put('/settings', async (req, res) => {
       pix_key: cleanText(s.pix_key ?? cur.pix_key, 140),
       pix_name: cleanText(s.pix_name ?? cur.pix_name, 120),
       since: Number(s.since ?? cur.since) || 2003,
+      fb_pixel: /^\d{10,20}$/.test(String(s.fb_pixel ?? cur.fb_pixel ?? '').trim()) ? String(s.fb_pixel ?? cur.fb_pixel).trim() : '',
+      gtm_id: /^GTM-[A-Z0-9]{4,12}$/.test(String(s.gtm_id ?? cur.gtm_id ?? '').trim().toUpperCase()) ? String(s.gtm_id ?? cur.gtm_id).trim().toUpperCase() : '',
     });
   }
   res.json({ ok: true });

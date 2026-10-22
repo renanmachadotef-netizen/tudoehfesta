@@ -8,6 +8,7 @@ import { dateBR, money, plural } from '../lib/format.js';
 import { PhotoGrid } from '../components/Photos.jsx';
 import SelfieSearch from '../components/SelfieSearch.jsx';
 import BuyAll from '../components/BuyAll.jsx';
+import { track } from '../lib/track.js';
 import { Loading, Empty, ErrorBox } from '../components/Layout.jsx';
 
 export function PriceSummary({ event }) {
@@ -108,6 +109,7 @@ export default function EventPage() {
     api(`/events/${slug}/photos?limit=200${h == null ? '' : `&hour=${h}`}`).then((d) => setPhotos((p) => ({ ...p, list: d.photos, more: d.more, loading: false }))).catch(() => setPhotos((p) => ({ ...p, loading: false })));
   };
 
+  useEffect(() => { if (event?.id && !event.locked) track('ViewContent', { content_ids: [String(event.id)], content_name: event.title, content_type: 'product_group' }); }, [event?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const eventInfo = useMemo(() => (event ? { event_title: event.title, event_slug: event.slug, price_cents: event.price_cents } : {}), [event]);
 
   const loadMore = async () => {

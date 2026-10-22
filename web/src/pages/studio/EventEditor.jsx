@@ -10,6 +10,7 @@ import { EVENT_STATUS } from './EventsList.jsx';
 import EventDrive from './EventDrive.jsx';
 import DisplaySelect from '../../components/DisplaySelect.jsx';
 import EventInsights from './EventInsights.jsx';
+import ArtEditor from './ArtEditor.jsx';
 import { EventCard } from '../../components/Photos.jsx';
 
 const blank = { title: '', event_date: new Date().toISOString().slice(0, 10), category_id: '', city: '', venue: '', description: '', price: '15,00', pack_price: '', discount_tiers: [{ min: 5, pct: 20 }], status: 'draft', hide_gallery: false, watermark_mode: 'site', visibility: 'public', password: '', publish_at: '' };
@@ -481,6 +482,7 @@ export default function EventEditor() {
 
       {event.id && <PhotosManager event={event} photos={photos} setPhotos={setPhotos} onCover={(pid) => setEvent({ ...event, cover_photo_id: pid })} onQueued={(n) => n && setQueue((q) => ({ render: q?.render || 0, faces: (q?.faces || 0) + n }))} />}
       {event.id && event.status === 'published' && <ShareKit event={event} />}
+      {event.id && photos.length > 0 && <ArtEditor event={event} photos={photos} />}
       {event.id && <button className="btn btn-danger btn-sm" style={{ alignSelf: 'flex-start' }} onClick={remove}><Trash2 size={14} /> Excluir evento</button>}
     </div>
   );

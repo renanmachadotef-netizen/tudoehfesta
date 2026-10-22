@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from 'react';
+import { track } from './track.js';
 
 // Carrinho no aparelho (localStorage): lista de fotos + dados minimos para desenhar a miniatura.
 const KEY = 'tef_carrinho_v1';
@@ -30,7 +31,9 @@ export const cart = {
   add(photos) {
     const list = Array.isArray(photos) ? photos : [photos];
     const ids = new Set(state.items.map((i) => i.id));
-    save({ ...state, items: [...state.items, ...list.filter((p) => !ids.has(p.id)).map(pick)] });
+    const fresh = list.filter((p) => !ids.has(p.id));
+    save({ ...state, items: [...state.items, ...fresh.map(pick)] });
+    if (fresh.length) track('AddToCart', { content_ids: fresh.map((p) => String(p.id)), content_type: 'product', num_items: fresh.length });
   },
   remove(ids) {
     const drop = new Set(Array.isArray(ids) ? ids : [ids]);
