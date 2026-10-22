@@ -11,7 +11,9 @@ import EventDrive from './EventDrive.jsx';
 import DisplaySelect from '../../components/DisplaySelect.jsx';
 import { EventCard } from '../../components/Photos.jsx';
 
-const blank = { title: '', event_date: new Date().toISOString().slice(0, 10), category_id: '', city: '', venue: '', description: '', price: '15,00', pack_price: '', discount_tiers: [{ min: 5, pct: 20 }], status: 'draft', hide_gallery: false, watermark_mode: 'site' };
+const blank = { title: '', event_date: new Date().toISOString().slice(0, 10), category_id: '', city: '', venue: '', description: '', price: '15,00', pack_price: '', discount_tiers: [{ min: 5, pct: 20 }], status: 'draft', hide_gallery: false, watermark_mode: 'site', visibility: 'public', password: '', publish_at: '' };
+// Data e hora de Brasilia para o campo datetime-local (o servidor guarda com fuso).
+const toLocalInput = (iso) => (iso ? new Date(new Date(iso).getTime() - 3 * 3600e3).toISOString().slice(0, 16) : '');
 
 function EventForm({ initial, onSaved }) {
   const { categories = [], toast } = useSite();
@@ -55,6 +57,28 @@ function EventForm({ initial, onSaved }) {
             <option value="hidden">Oculto</option>
           </select>
         </label>
+      </div>
+      {f.status === 'draft' && (
+        <label className="field"><span>Publicar automaticamente em <small>(opcional)</small></span>
+          <input className="input" type="datetime-local" value={f.publish_at || ''} onChange={set('publish_at')} style={{ maxWidth: 260 }} />
+          <small>O evento vai ao ar sozinho nessa data e hora (horário de Brasília). Bom para liberar as fotos no dia seguinte da festa.</small>
+        </label>
+      )}
+      <div className="grid-2">
+        <label className="field"><span>Quem pode abrir o evento</span>
+          <select className="select" value={f.visibility || 'public'} onChange={set('visibility')}>
+            <option value="public">Público · aparece nas listas do site</option>
+            <option value="unlisted">Só quem tiver o link · fora das listas</option>
+            <option value="password">Com senha · pede senha para ver</option>
+          </select>
+          <small>{f.visibility === 'password' ? 'Fica fora das listas e da busca geral por selfie; a pessoa digita a senha na página do evento.' : f.visibility === 'unlisted' ? 'Não aparece em listas nem na página inicial, mas quem tem o link entra normalmente.' : 'Aparece na lista de eventos, na categoria e no ano.'}</small>
+        </label>
+        {f.visibility === 'password' && (
+          <label className="field"><span>Senha do evento</span>
+            <input className="input" value={f.password || ''} onChange={set('password')} placeholder={initial.has_password ? 'Deixe em branco para manter a atual' : 'Ex.: FORMATURA26'} autoComplete="off" />
+            <small>Passe a senha para os convidados junto com o link.</small>
+          </label>
+        )}
       </div>
       <div className="grid-2">
         <label className="field"><span>Cidade</span><input className="input" value={f.city || ''} onChange={set('city')} placeholder="Araranguá, SC" /></label>
@@ -374,6 +398,7 @@ export default function EventEditor() {
     id: event.id, title: event.title, event_date: event.event_date, category_id: event.category_id || '', city: event.city, venue: event.venue,
     description: event.description, price: centsToInput(event.price_cents), pack_price: centsToInput(event.pack_price_cents),
     discount_tiers: event.discount_tiers || [], status: event.status, hide_gallery: event.hide_gallery, watermark_mode: event.watermark_mode || 'site',
+    visibility: event.visibility || 'public', password: '', has_password: event.visibility === 'password', publish_at: toLocalInput(event.publish_at),
   } : blank;
 
   const remove = async () => {

@@ -1,10 +1,11 @@
+import crypto from 'node:crypto';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { Router } from 'express';
 import multer from 'multer';
 import { db } from '../db.js';
 import { config } from '../config.js';
-import { requirePhotographer, requireUser } from '../auth.js';
+import { requirePhotographer, requireUser, hashPassword } from '../auth.js';
 import { dirs, saveOriginal, renderPhoto, photoSha, removePhotoFiles, storeAsset, movePhotoFiles } from '../storage.js';
 import { normalizeWatermark, watermarkPreview, clearWatermarkCache } from '../watermark.js';
 import { driveInfo, parseFolderId, folderName, previewSource, ignoreWords } from '../drive.js';
@@ -143,6 +144,10 @@ function eventFields(b) {
     status: ['draft', 'published', 'hidden'].includes(b.status) ? b.status : 'draft',
     hide_gallery: !!b.hide_gallery,
     watermark_mode: WM_MODES.includes(b.watermark_mode) ? b.watermark_mode : 'site',
+    visibility: ['public', 'unlisted', 'password'].includes(b.visibility) ? b.visibility : 'public',
+    password: cleanText(b.password, 60) || null,
+    // "Publicar automaticamente em" chega como data e hora de Brasilia (sem fuso).
+    publish_at: /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(String(b.publish_at || '')) ? `${b.publish_at}:00-03:00` : null,
   };
 }
 
@@ -159,6 +164,9 @@ r.post('/events', async (req, res) => {
     [slug, f.title, f.description, f.category_id, req.user.id, f.event_date, f.city, f.venue, f.price_cents,
       f.pack_price_cents, f.discount_tiers, f.status, f.hide_gallery, f.watermark_mode],
   );
+  if (f.visibility === 'password' && !f.password) fail(400, 'Defina a senha do evento.');
+  await db.query('update events set visibility = $2, password_hash = $3, publish_at = $4 where id = $1',
+    [ev.id, f.visibility, f.password ? await hashPassword(f.password) : null, f.publish_at]);
   res.json({ event: ev });
 });
 
@@ -187,6 +195,9 @@ r.put('/events/:id', async (req, res) => {
     [ev.id, slug, f.title, f.description, f.category_id, f.event_date, f.city, f.venue, f.price_cents, f.pack_price_cents,
       f.discount_tiers, f.status, f.hide_gallery, f.watermark_mode],
   );
+  if (f.visibility === 'password' && !f.password && !ev.password_hash) fail(400, 'Defina a senha do evento.');
+  await db.query('update events set visibility = $2, password_hash = coalesce($3, password_hash), publish_at = $4 where id = $1',
+    [ev.id, f.visibility, f.password ? await hashPassword(f.password) : null, f.status === 'draft' ? f.publish_at : null]);
   if (String(ev.event_date) !== f.event_date) {
     await db.query('update faces set year = $2 where event_id = $1', [ev.id, Number(f.event_date.slice(0, 4))]);
   }
@@ -396,19 +407,66 @@ r.get('/coupons', async (req, res) => {
   res.json({ coupons: rows });
 });
 
+// Regra do cupom: % de desconto, valor em R$ no pedido ou N fotos gratis; com evento, validade e limite de usos.
+async function couponRule(req, b) {
+  const kind = ['pct', 'fixed', 'free'].includes(b.kind) ? b.kind : 'pct';
+  const rule = { kind, pct: null, amount_cents: null, free_photos: null };
+  if (kind === 'pct') {
+    rule.pct = Math.round(Number(b.pct));
+    if (!(rule.pct >= 1 && rule.pct <= 100)) fail(400, 'Desconto entre 1% e 100%.');
+  } else if (kind === 'fixed') {
+    rule.amount_cents = toCents(b.amount);
+    if (!(rule.amount_cents >= 100)) fail(400, 'Valor do desconto: mínimo R$ 1,00.');
+  } else {
+    rule.free_photos = Math.round(Number(b.free_photos));
+    if (!(rule.free_photos >= 1 && rule.free_photos <= 500)) fail(400, 'Quantidade de fotos grátis: de 1 a 500.');
+  }
+  if (b.event_id) await ownEvent(req, b.event_id);
+  const day = (v) => (/^\d{4}-\d{2}-\d{2}$/.test(String(v || '')) ? v : null);
+  return { ...rule, event_id: Number(b.event_id) || null, max_uses: Number(b.max_uses) || null, starts_at: day(b.starts_at), ends_at: day(b.ends_at) };
+}
+const insertCoupon = (req, code, r, batch = null, maxUses = r.max_uses) => db.query(
+  `insert into coupons (code, photographer_id, event_id, kind, pct, amount_cents, free_photos, max_uses, starts_at, ends_at, batch)
+   values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+  [code, req.user.id, r.event_id, r.kind, r.pct, r.amount_cents, r.free_photos, maxUses, r.starts_at, r.ends_at, batch],
+);
+
 r.post('/coupons', async (req, res) => {
   const b = req.body || {};
   const code = String(b.code || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 20);
   if (code.length < 3) fail(400, 'Código do cupom: mínimo 3 letras/números.');
-  const pct = Math.round(Number(b.pct));
-  if (!(pct >= 1 && pct <= 100)) fail(400, 'Desconto entre 1% e 100%.');
-  if (b.event_id) await ownEvent(req, b.event_id);
+  const r = await couponRule(req, b);
   const exists = await db.one('select id from coupons where upper(code) = $1', [code]);
   if (exists) fail(409, 'Já existe um cupom com esse código.');
-  await db.query('insert into coupons (code, photographer_id, event_id, pct, max_uses) values ($1, $2, $3, $4, $5)', [
-    code, req.user.id, Number(b.event_id) || null, pct, Number(b.max_uses) || null,
-  ]);
+  await insertCoupon(req, code, r);
   res.json({ ok: true });
+});
+
+// Lote: N codigos unicos (PREFIXO-XXXXX), cada um com o limite de usos escolhido (padrao 1). Ex.: um por formando.
+const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+r.post('/coupons/batch', async (req, res) => {
+  const b = req.body || {};
+  const prefix = String(b.prefix || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10);
+  if (prefix.length < 2) fail(400, 'Prefixo do lote: mínimo 2 letras/números.');
+  const count = Math.round(Number(b.count));
+  if (!(count >= 1 && count <= 500)) fail(400, 'Quantidade de cupons: de 1 a 500.');
+  const r = await couponRule(req, b);
+  const batch = `${prefix}-${new Date().toISOString().slice(0, 10)}`;
+  const codes = [];
+  while (codes.length < count) {
+    const code = `${prefix}${Array.from(crypto.randomBytes(5), (x) => ALPHABET[x % ALPHABET.length]).join('')}`;
+    if (codes.includes(code) || (await db.one('select 1 from coupons where upper(code) = $1', [code]))) continue;
+    await insertCoupon(req, code, r, batch, r.max_uses || 1);
+    codes.push(code);
+  }
+  res.json({ ok: true, batch, codes });
+});
+
+r.get('/coupons/batch.csv', async (req, res) => {
+  const rows = await db.many('select code, uses, max_uses from coupons where photographer_id = $1 and batch = $2 order by code', [req.user.id, String(req.query.batch || '')]);
+  res.set('Content-Type', 'text/csv; charset=utf-8');
+  res.set('Content-Disposition', `attachment; filename="cupons-${String(req.query.batch || 'lote').replace(/[^\w-]/g, '')}.csv"`);
+  res.send('\ufeffcodigo;usos;limite\n' + rows.map((c) => `${c.code};${c.uses};${c.max_uses ?? ''}`).join('\n'));
 });
 
 r.put('/coupons/:id', async (req, res) => {

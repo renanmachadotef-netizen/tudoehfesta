@@ -104,6 +104,13 @@ async function expirePending() {
 
 // "O sistema revisa e publica": evento importado do Drive vai ao ar quando todas as fotos estao prontas.
 async function autoPublish() {
+  // Liberacao agendada: rascunho com data marcada vai ao ar sozinho.
+  const scheduled = await db.many(
+    `update events set status = 'published', published_at = now(), publish_at = null
+      where status = 'draft' and publish_at is not null and publish_at <= now() returning id, title`,
+  );
+  for (const r of scheduled) activity('publicacao', `Evento publicado no horário agendado: ${r.title}`);
+  if (scheduled.length) invalidateFaces();
   const rows = await db.many(
     `update events e set status = 'published', published_at = now(), auto_publish = false
       where e.auto_publish and e.status = 'draft'

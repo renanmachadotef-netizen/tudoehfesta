@@ -43,6 +43,39 @@ export function useOwned() {
   return owned;
 }
 
+// Evento com senha: pede a senha antes de mostrar fotos e busca por selfie.
+function LockedEvent({ event, onUnlock }) {
+  const [pw, setPw] = useState('');
+  const [err, setErr] = useState('');
+  const [busy, setBusy] = useState(false);
+  const submit = async (e) => {
+    e.preventDefault();
+    setBusy(true);
+    setErr('');
+    try {
+      await api(`/events/${event.slug}/unlock`, { method: 'POST', body: { password: pw } });
+      onUnlock();
+    } catch (x) {
+      setErr(x.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="container section" style={{ maxWidth: 560 }}>
+      <form className="card stack" style={{ padding: 28, gap: 16 }} onSubmit={submit}>
+        <Lock size={26} color="var(--accent)" />
+        <h1 style={{ fontSize: 'clamp(30px, 4vw, 42px)' }}>{event.title}</h1>
+        <span className="small muted">{dateBR(event.event_date)}{event.city ? ` · ${event.city}` : ''} · {plural(event.photo_count, 'foto', 'fotos')}</span>
+        <p className="muted">Este evento é reservado. Digite a senha que você recebeu junto com o link para ver as fotos.</p>
+        <label className="field"><span>Senha do evento</span><input className="input" value={pw} onChange={(e) => setPw(e.target.value)} required autoFocus autoComplete="off" /></label>
+        {err && <div className="alert alert-bad">{err}</div>}
+        <button className="btn btn-accent" disabled={busy} style={{ alignSelf: 'flex-start' }}>{busy ? 'Conferindo…' : 'Entrar no evento'}</button>
+      </form>
+    </div>
+  );
+}
+
 export default function EventPage() {
   const { slug } = useParams();
   const { toast } = useSite();
@@ -95,6 +128,10 @@ export default function EventPage() {
 
   if (error) return <div className="container section"><ErrorBox error={error} /></div>;
   if (!event) return <Loading />;
+  if (event.locked) return <LockedEvent event={event} onUnlock={() => {
+    api(`/events/${slug}`).then((d) => setEvent(d.event)).catch(setError);
+    api(`/events/${slug}/photos?limit=200`).then((d) => setPhotos({ list: d.photos, more: d.more, loading: false, hidden: !!d.hidden, owner: !!d.owner })).catch(() => {});
+  }} />;
 
   const inThisEvent = items.filter((i) => i.event_slug === event.slug).length;
   const hidden = photos.hidden;

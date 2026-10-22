@@ -301,3 +301,16 @@ create table if not exists carts (
 );
 alter table orders add column if not exists recovery_status text not null default 'open';
 alter table orders add column if not exists contacted_at timestamptz;
+
+-- v13: acesso ao evento (publico / so com o link / com senha), liberacao agendada e cupons com mais tipos
+alter table events add column if not exists visibility text not null default 'public';
+alter table events add column if not exists password_hash text;
+alter table events add column if not exists publish_at timestamptz;
+alter table coupons alter column pct drop not null;
+alter table coupons drop constraint if exists coupons_pct_check;
+alter table coupons add column if not exists kind text not null default 'pct';
+alter table coupons add column if not exists amount_cents integer;
+alter table coupons add column if not exists free_photos integer;
+alter table coupons add column if not exists starts_at date;
+alter table coupons add column if not exists ends_at date;
+alter table coupons add column if not exists batch text;

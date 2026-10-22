@@ -1,5 +1,8 @@
+import crypto from 'node:crypto';
 import { Router } from 'express';
 import { db } from '../db.js';
+import { checkPassword } from '../auth.js';
+import { config } from '../config.js';
 import { getSetting, priceCart, effectivePrice } from '../pricing.js';
 import { searchFaces, DIM, DEFAULT_THRESHOLD } from '../faces.js';
 import { previewUrl, thumbUrl } from '../storage.js';
@@ -12,6 +15,7 @@ const r = Router();
 export const EVENT_CARD = `
   e.id, e.slug, e.title, e.event_date, e.city, e.venue, e.status, e.price_cents, e.pack_price_cents,
   e.discount_tiers, e.category_id, c.name as category_name, c.slug as category_slug, e.hide_gallery, e.watermark_mode, e.kind,
+  e.visibility, e.publish_at,
   ph.display_name as photographer_name, ph.slug as photographer_slug, ph.avatar_path as photographer_avatar,
   (select count(*) from photos p where p.event_id = e.id and p.key is not null and not p.hidden)::int as photo_count,
   cv.id as cover_id, cv.key as cover_key`;
@@ -59,19 +63,19 @@ r.get('/site', async (req, res) => {
     getSetting('site', {}),
     db.many(
       `select c.id, c.slug, c.name, c.sort, count(e.id)::int as events
-         from categories c left join events e on e.category_id = c.id and e.status = 'published' and e.kind = 'event'
+         from categories c left join events e on e.category_id = c.id and e.status = 'published' and e.kind = 'event' and e.visibility = 'public'
         group by c.id order by c.sort, c.name`,
     ),
     db.many(
-      `select extract(year from e.event_date)::int as year, count(distinct e.id) filter (where e.kind = 'event')::int as events,
+      `select extract(year from e.event_date)::int as year, count(distinct e.id) filter (where e.kind = 'event' and e.visibility = 'public')::int as events,
               count(p.id)::int as photos
          from events e left join photos p on p.event_id = e.id and p.key is not null and not p.hidden
-        where e.status = 'published' group by 1 having count(p.id) > 0 or count(distinct e.id) filter (where e.kind = 'event') > 0
+        where e.status = 'published' and e.visibility <> 'password' group by 1 having count(p.id) > 0 or count(distinct e.id) filter (where e.kind = 'event' and e.visibility = 'public') > 0
         order by 1 desc`,
     ),
     db.one(
       `select (select count(*) from photos p join events e on e.id = p.event_id and e.status = 'published' where not p.hidden)::int as photos,
-              (select count(*) from events where status = 'published' and kind = 'event')::int as events,
+              (select count(*) from events where status = 'published' and kind = 'event' and visibility = 'public')::int as events,
               (select count(*) from photographers where status = 'approved')::int as photographers`,
     ),
   ]);
@@ -88,7 +92,7 @@ r.get('/site', async (req, res) => {
 
 r.get('/events', async (req, res) => {
   // So eventos cadastrados; o acervo do ano (kind 'pool') aparece na busca e na galeria do ano.
-  const where = [`e.status = 'published'`, `e.kind = 'event'`];
+  const where = [`e.status = 'published'`, `e.kind = 'event'`, `e.visibility = 'public'`];
   const params = [];
   const add = (sql, v) => {
     params.push(v);
@@ -125,16 +129,38 @@ r.get('/events/:slug', async (req, res) => {
   // Acervo do ano nao tem pagina: as fotos dele so aparecem pela busca por selfie.
   const canSee = row && (owner || (row.status === 'published' && row.kind === 'event'));
   if (!canSee) fail(404, 'Evento não encontrado.');
+  // Evento com senha: so titulo, data e local ate a pessoa digitar a senha.
+  if (row.visibility === 'password' && !owner && !(await unlocked(req, row.id))) {
+    const card = publicCard(row);
+    return res.json({ event: { ...card, cover: null, cover_thumb: null, locked: true } });
+  }
   db.query('update events set views = views + 1 where id = $1', [row.id]).catch(() => {});
   res.json({ event: publicCard(row) });
 });
 
+// Senha do evento: confere e grava um cookie assinado so para este evento (30 dias).
+const unlockValue = (id, hash) => crypto.createHmac('sha256', config.sessionSecret).update(`${id}:${hash}`).digest('base64url');
+async function unlocked(req, eventId) {
+  const m = String(req.headers.cookie || '').match(new RegExp(`(?:^|;\\s*)evk${eventId}=([^;]+)`));
+  if (!m) return false;
+  const ev = await db.one('select password_hash from events where id = $1', [eventId]);
+  return !!ev?.password_hash && m[1] === unlockValue(eventId, ev.password_hash);
+}
+r.post('/events/:slug/unlock', rateLimit('unlock', 20, 60_000), async (req, res) => {
+  const ev = await db.one(`select id, password_hash from events where slug = $1 and status = 'published' and visibility = 'password'`, [req.params.slug]);
+  if (!ev || !ev.password_hash) fail(404, 'Evento não encontrado.');
+  if (!(await checkPassword(String(req.body?.password || ''), ev.password_hash))) fail(403, 'Senha incorreta.');
+  res.cookie(`evk${ev.id}`, unlockValue(ev.id, ev.password_hash), { httpOnly: true, sameSite: 'lax', secure: config.isProd, maxAge: 30 * 864e5, path: '/' });
+  res.json({ ok: true });
+});
+
 r.get('/events/:slug/photos', async (req, res) => {
-  const ev = await db.one('select id, status, photographer_id, hide_gallery, kind from events where slug = $1', [req.params.slug]);
+  const ev = await db.one('select id, status, photographer_id, hide_gallery, kind, visibility from events where slug = $1', [req.params.slug]);
   const owner = req.user?.role === 'admin' || req.user?.id === ev?.photographer_id;
   if (!ev || (ev.status !== 'published' && !owner)) fail(404, 'Evento não encontrado.');
   // Galeria oculta: as fotos so aparecem pela busca por selfie. Vale tambem para o dono/admin nesta pagina
   // (ele ve exatamente o que o visitante ve; as fotos ficam no painel).
+  if (ev.visibility === 'password' && !owner && !(await unlocked(req, ev.id))) return res.json({ photos: [], more: false, hidden: true, locked: true });
   if (ev.hide_gallery || ev.kind === 'pool') return res.json({ photos: [], more: false, hidden: true, owner });
   const limit = Math.min(Number(req.query.limit) || 120, 300);
   const offset = Math.max(Number(req.query.offset) || 0, 0);
@@ -167,8 +193,9 @@ r.post('/faces/search', rateLimit('faces', 40, 60_000), async (req, res) => {
   let key = 'all';
   if (scope === 'year' && year) key = `year:${Number(year)}`;
   if (scope === 'event' && event) {
-    const ev = await db.one(`select id from events where slug = $1 and status = 'published'`, [String(event)]);
+    const ev = await db.one(`select id, visibility from events where slug = $1 and status = 'published'`, [String(event)]);
     if (!ev) fail(404, 'Evento não encontrado.');
+    if (ev.visibility === 'password' && !(await unlocked(req, ev.id))) fail(403, 'Digite a senha do evento primeiro.');
     key = `event:${ev.id}`;
   }
   const threshold = Math.min(Math.max(Number(req.body.threshold) || DEFAULT_THRESHOLD, 0.35), 0.6);

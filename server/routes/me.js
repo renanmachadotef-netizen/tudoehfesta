@@ -106,7 +106,7 @@ r.get('/my/matches', async (req, res) => {
             e.event_date, e.price_cents, e.pack_price_cents, e.kind as event_kind, ${MINE_BLURRED('$1')}
        from user_matches m
        join photos p on p.id = m.photo_id and p.key is not null and not p.hidden
-       join events e on e.id = p.event_id and e.status = 'published'
+       join events e on e.id = p.event_id and e.status = 'published' and e.visibility <> 'password'
       where m.user_id = $1
         and not exists (select 1 from order_items oi join orders o on o.id = oi.order_id and o.status = 'paid'
                          where oi.photo_id = p.id and o.user_id = $1)

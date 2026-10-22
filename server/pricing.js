@@ -59,6 +59,12 @@ export function effectivePrice(ev, ap = archive) {
   };
 }
 
+export function couponLabel(c) {
+  if (c.kind === 'fixed') return `R$ ${((c.amount_cents || 0) / 100).toFixed(2).replace('.', ',')} de desconto`;
+  if (c.kind === 'free') return `${c.free_photos} foto${c.free_photos === 1 ? '' : 's'} grátis`;
+  return `${c.pct}% de desconto`;
+}
+
 export function tierPctFor(tiers, n) {
   let pct = 0;
   for (const t of Array.isArray(tiers) ? tiers : []) {
@@ -92,7 +98,8 @@ export async function priceCart(photoIds, couponCode) {
   let coupon = null;
   if (couponCode) {
     coupon = await db.one(
-      `select * from coupons where upper(code) = upper($1) and active and (max_uses is null or uses < max_uses)`,
+      `select * from coupons where upper(code) = upper($1) and active and (max_uses is null or uses < max_uses)
+         and (starts_at is null or starts_at <= current_date) and (ends_at is null or ends_at >= current_date)`,
       [String(couponCode).trim()],
     );
   }
@@ -120,7 +127,7 @@ export async function priceCart(photoIds, couponCode) {
     const couponOk = coupon &&
       (!coupon.event_id || coupon.event_id === meta.event_id) &&
       (!coupon.photographer_id || coupon.photographer_id === meta.photographer_id);
-    if (couponOk) {
+    if (couponOk && (coupon.kind || 'pct') === 'pct') {
       total = Math.round(total * (1 - coupon.pct / 100));
       couponUsed = true;
     }
@@ -138,6 +145,8 @@ export async function priceCart(photoIds, couponCode) {
         price_cents: itemPrice,
         commission_cents: commission,
         photographer_cents: itemPrice - commission,
+        _pct: pct,
+        _coupon: !!couponOk,
         thumb: thumbUrl(ph.event_id, photoId, ph.key),
       });
     }
@@ -155,6 +164,42 @@ export async function priceCart(photoIds, couponCode) {
       total_cents: total,
     });
   }
+  // Cupom em R$ (desconto no pedido, repartido entre as fotos que ele cobre) ou de N fotos gratis (as mais baratas).
+  if (coupon && ['fixed', 'free'].includes(coupon.kind)) {
+    const eligible = items.filter((it) => it._coupon && it.price_cents > 0);
+    let off = 0;
+    if (coupon.kind === 'free') {
+      for (const it of [...eligible].sort((a, b) => a.price_cents - b.price_cents).slice(0, Math.max(0, coupon.free_photos || 0))) {
+        off += it.price_cents;
+        it.price_cents = 0;
+      }
+    } else {
+      const base = eligible.reduce((s, it) => s + it.price_cents, 0);
+      const want = Math.min(Math.max(0, coupon.amount_cents || 0), base);
+      let left = want;
+      eligible.forEach((it, i) => {
+        const cut = i === eligible.length - 1 ? left : Math.min(left, Math.round((it.price_cents * want) / base));
+        it.price_cents -= cut;
+        left -= cut;
+      });
+      off = want;
+    }
+    if (off > 0) {
+      couponUsed = true;
+      for (const it of eligible) {
+        it.commission_cents = Math.round((it.price_cents * it._pct) / 100);
+        it.photographer_cents = it.price_cents - it.commission_cents;
+      }
+      for (const g of groups) {
+        g.total_cents = items.filter((it) => it.event_id === g.event_id).reduce((s, it) => s + it.price_cents, 0);
+        if (eligible.some((it) => it.event_id === g.event_id)) g.coupon_applied = true;
+      }
+    }
+  }
+  for (const it of items) {
+    delete it._pct;
+    delete it._coupon;
+  }
   const subtotal = groups.reduce((s, g) => s + g.base_cents, 0);
   const total = groups.reduce((s, g) => s + g.total_cents, 0);
   return {
@@ -163,6 +208,6 @@ export async function priceCart(photoIds, couponCode) {
     subtotal,
     discount: subtotal - total,
     total,
-    coupon: coupon ? { code: coupon.code, pct: coupon.pct, applied: couponUsed } : couponCode ? { code: couponCode, invalid: true } : null,
+    coupon: coupon ? { code: coupon.code, kind: coupon.kind || 'pct', pct: coupon.pct, label: couponLabel(coupon), applied: couponUsed } : couponCode ? { code: couponCode, invalid: true } : null,
   };
 }

@@ -256,7 +256,7 @@ function Events() {
           <tr key={g.key} className="group-row"><td colSpan={9}><b>{label(g.key)}</b> <span className="muted small">· {g.items.length} {g.items.length === 1 ? 'pasta/evento' : 'pastas/eventos'} · {g.items.reduce((n, e) => n + e.photo_count, 0).toLocaleString('pt-BR')} fotos</span></td></tr>,
           ...g.items.map((e) => (
           <tr key={e.id}>
-            <td><Link to={`/painel/eventos/${e.id}`} style={{ fontWeight: 600 }}>{e.title}</Link><div className="tiny muted">{dateBR(e.event_date)} · {e.kind === 'pool' ? 'acervo do ano' : e.category_name || 'sem categoria'}</div></td>
+            <td><Link to={`/painel/eventos/${e.id}`} style={{ fontWeight: 600 }}>{e.title}</Link><div className="tiny muted">{dateBR(e.event_date)} · {e.kind === 'pool' ? 'acervo do ano' : e.category_name || 'sem categoria'}{e.visibility === 'unlisted' ? ' · só com link' : e.visibility === 'password' ? ' · com senha' : ''}</div></td>
             <td className="small">{e.photographer_name}</td>
             <td><DisplaySelect event={e} small onChanged={reload} /></td>
             <td><select className="select" style={{ height: 32, width: 130, fontSize: 13 }} value={e.status} onChange={(ev) => setStatus(e, ev.target.value)}>

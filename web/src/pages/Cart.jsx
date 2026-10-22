@@ -137,7 +137,7 @@ export default function Cart() {
             <button className="btn btn-soft">Aplicar</button>
           </form>
           {price?.coupon?.invalid && <span className="tiny" style={{ color: 'var(--bad)' }}>Cupom inválido ou esgotado.</span>}
-          {price?.coupon?.applied && <span className="tiny" style={{ color: 'var(--ok)' }}>Cupom {price.coupon.code} aplicado ({price.coupon.pct}%).</span>}
+          {price?.coupon?.applied && <span className="tiny" style={{ color: 'var(--ok)' }}>Cupom {price.coupon.code} aplicado: {price.coupon.label}.</span>}
           {price?.coupon && !price.coupon.invalid && !price.coupon.applied && <span className="tiny muted">Este cupom não vale para as fotos do carrinho.</span>}
 
           {!user ? (

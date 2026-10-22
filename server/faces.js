@@ -31,7 +31,8 @@ async function loadScope(scope) {
   // Rostos borrados a pedido do proprio cliente nunca aparecem na busca de outras pessoas.
   // Fotos ocultas pelo fotografo tambem ficam de fora.
   const visible = 'f.blurred_user_id is null and not exists (select 1 from photos hp where hp.id = f.photo_id and hp.hidden)';
-  let where = `${visible} and f.event_id in (select id from events where status = 'published')`;
+  // Eventos com senha ficam fora da busca geral e por ano (so dentro do proprio evento, depois da senha).
+  let where = `${visible} and f.event_id in (select id from events where status = 'published' and visibility <> 'password')`;
   const params = [];
   if (scope.startsWith('year:')) {
     params.push(Number(scope.slice(5)));
