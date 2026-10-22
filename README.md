@@ -60,10 +60,10 @@ Abre o site em http://localhost:5173 e a API na porta 3001. Sem `DATABASE_URL`, 
 Projeto `tudoehfesta` com dois serviços:
 
 1. **Postgres** `db` (postgres:17).
-2. **App** `site`: GitHub `tudoehfesta`, branch `main`, build por `Dockerfile`.
+2. **App** `site`: GitHub `tudoehfesta`, branch `main`, build por `Dockerfile`, com **Auto Deploy** ligado (cada push na `main` publica sozinho).
    - **Volume** montado em `/data` (sem isso as fotos somem a cada deploy).
    - Variáveis: ver `.env.example` (`DATABASE_URL`, `SESSION_SECRET`, `PUBLIC_URL`, `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `MP_ACCESS_TOKEN`).
-   - Domínio: `www.tudoehfesta.com` (e `tudoehfesta.com`) na porta 80.
+   - Domínio principal: `loucosporfoto.com.br` (os outros endereços redirecionam para ele), porta 80.
 3. **InfinitePay** (opcional): `INFINITEPAY_HANDLE` = InfiniteTag sem o $ (`renan_machado`). O cliente paga na página da InfinitePay (Pix ou cartão até 12x) com itens por evento e dados pré-preenchidos, e volta para o pedido. Confirmação pelo webhook `/api/webhooks/infinitepay` (URL enviada em cada link), pela volta do cliente e por verificação periódica, sempre conferida no `payment_check`. A API recusa qualquer caractere fora do ASCII (acentos) em itens e no nome do comprador: o código converte antes de enviar. Pedidos não pagos são cancelados depois de 7 dias.
 4. **Mercado Pago** (Pix com QR Code na própria página do pedido): aplicação "Tudo Eh Festa Site", Checkout Transparente via **API de Orders**. Access Token de produção em `MP_ACCESS_TOKEN`; webhook do evento **Order (Mercado Pago)** para `https://www.tudoehfesta.com/api/webhooks/mercadopago`. Mesmo sem webhook, a página do pedido confere o pagamento sozinha a cada 5 segundos.
 
@@ -72,4 +72,4 @@ Projeto `tudoehfesta` com dois serviços:
 Fotos importadas do Drive com "Guardar os originais só no Drive" ligado: o servidor guarda só vitrine e miniatura; o original é buscado no Drive na hora do download e copiado para o servidor quando a foto é vendida. Não apague nem mova essas fotos no Drive.
 
 
-Cada foto ocupa o original mais cerca de 300 KB (vitrine e miniatura). Com originais de 8 MB, 10 mil fotos dão por volta de 80 GB. O VPS tem ~70 GB livres: acompanhe o disco no Easypanel. Próximo passo quando encher: mover originais para um armazenamento de objetos (Cloudflare R2 ou Backblaze B2).
+Cada foto ocupa cerca de 140 KB no servidor (vitrine e miniatura em WebP) mais o original, quando ele é guardado no servidor. Com originais de 8 MB, 10 mil fotos dão por volta de 80 GB. O VPS tem ~70 GB livres: acompanhe o disco no Easypanel. Próximo passo quando encher: mover originais para um armazenamento de objetos (Cloudflare R2 ou Backblaze B2).
