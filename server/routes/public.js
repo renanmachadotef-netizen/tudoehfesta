@@ -138,6 +138,19 @@ r.get('/events/:slug', async (req, res) => {
   res.json({ event: publicCard(row) });
 });
 
+// Horarios com fotos (para os botoes do filtro por horario da galeria).
+r.get('/events/:slug/hours', async (req, res) => {
+  const ev = await db.one('select id, status, hide_gallery, kind, visibility from events where slug = $1', [req.params.slug]);
+  if (!ev || ev.status !== 'published' || ev.hide_gallery || ev.kind === 'pool') return res.json({ hours: [] });
+  if (ev.visibility === 'password' && !(await unlocked(req, ev.id))) return res.json({ hours: [] });
+  const rows = await db.many(
+    `select extract(hour from taken_at)::int as hour, count(*)::int as photos from photos
+      where event_id = $1 and key is not null and not hidden and taken_at is not null group by 1 order by 1`,
+    [ev.id],
+  );
+  res.json({ hours: rows });
+});
+
 // Senha do evento: confere e grava um cookie assinado so para este evento (30 dias).
 const unlockValue = (id, hash) => crypto.createHmac('sha256', config.sessionSecret).update(`${id}:${hash}`).digest('base64url');
 async function unlocked(req, eventId) {
@@ -164,9 +177,13 @@ r.get('/events/:slug/photos', async (req, res) => {
   if (ev.hide_gallery || ev.kind === 'pool') return res.json({ photos: [], more: false, hidden: true, owner });
   const limit = Math.min(Number(req.query.limit) || 120, 300);
   const offset = Math.max(Number(req.query.offset) || 0, 0);
+  // Filtro por horario (hora do clique): ?hour=21 mostra as fotos tiradas entre 21h e 21h59.
+  const hour = /^\d{1,2}$/.test(String(req.query.hour ?? '')) ? Number(req.query.hour) : null;
   const rows = await db.many(
-    `select id, event_id, width, height, key from photos where event_id = $1 and key is not null and not hidden order by sort_key nulls last, id limit $2 offset $3`,
-    [ev.id, limit + 1, offset],
+    `select id, event_id, width, height, key from photos where event_id = $1 and key is not null and not hidden
+       and ($4::int is null or extract(hour from taken_at) = $4)
+      order by ${hour == null ? 'sort_key nulls last, id' : 'taken_at, id'} limit $2 offset $3`,
+    [ev.id, limit + 1, offset, hour],
   );
   res.json({ photos: rows.slice(0, limit).map(photoOut), more: rows.length > limit });
 });

@@ -326,3 +326,7 @@ create table if not exists visits (
 );
 create index if not exists visits_at_idx on visits (at);
 create index if not exists visits_event_idx on visits (event_id, at) where event_id is not null;
+
+-- v15: hora em que a foto foi tirada (relogio da camera), para o filtro por horario na galeria do evento
+alter table photos add column if not exists taken_at timestamp;
+create index if not exists photos_event_taken_idx on photos (event_id, taken_at) where taken_at is not null;

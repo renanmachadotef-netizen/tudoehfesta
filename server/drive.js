@@ -110,6 +110,11 @@ async function listChildren(folderId) {
 }
 
 const isFolder = (f) => f.mimeType === 'application/vnd.google-apps.folder';
+// Hora do clique que o Google le do EXIF ("2026:09:12 21:33:10") -> "2026-09-12 21:33:10".
+const driveTime = (f) => {
+  const t = f.imageMediaMetadata?.time;
+  return t && /^\d{4}:\d{2}:\d{2} \d{2}:\d{2}:\d{2}/.test(t) ? `${t.slice(0, 10).replace(/:/g, '-')} ${t.slice(11, 19)}` : null;
+};
 
 // Pastas ignoradas: se alguma palavra do nome da pasta estiver na lista (ex.: "descartadas", "dsc", "site"),
 // a pasta e as subpastas dela ficam de fora. Sem acento e sem diferenca de maiusculas.
@@ -383,8 +388,8 @@ async function importFile(source, event, file) {
       return 'skip';
     }
     const photo = await db.one(
-      `insert into photos (event_id, photographer_id, original_name, original_path, sort_key, drive_file_id, tag) values ($1, $2, $3, '', $4, $5, $6) returning id`,
-      [event.id, source.photographer_id, file.name, file.name, file.id, event.tag || null],
+      `insert into photos (event_id, photographer_id, original_name, original_path, sort_key, drive_file_id, tag, taken_at) values ($1, $2, $3, '', $4, $5, $6, $7) returning id`,
+      [event.id, source.photographer_id, file.name, file.name, file.id, event.tag || null, driveTime(file)],
     );
     try {
       if (source.keep_in_drive) {
@@ -475,6 +480,17 @@ export async function syncSource(sourceId) {
       `select drive_file_id from photos where drive_file_id is not null union select drive_file_id from drive_skips where source_id = $1`,
       [source.id],
     )).map((r) => r.drive_file_id));
+    // Fotos importadas antes de existir o filtro por horario: completa a hora com o que o Drive informa.
+    if (await db.one('select 1 from photos where taken_at is null and drive_file_id is not null limit 1')) {
+      const pairs = groups.flatMap((g) => g.files).map((f) => [f.id, driveTime(f)]).filter(([id, t]) => t && known.has(id));
+      if (pairs.length) {
+        await db.query(
+          `update photos p set taken_at = v.t::timestamp from unnest($1::text[], $2::text[]) as v(id, t)
+            where p.drive_file_id = v.id and p.taken_at is null`,
+          [pairs.map((x) => x[0]), pairs.map((x) => x[1])],
+        );
+      }
+    }
     let budget = FILES_PER_RUN;
     const pendingAll = groups.reduce((n, g) => n + g.files.filter((f) => !known.has(f.id)).length, 0);
     // Retrato da pasta para o painel "Ao vivo": quantas pastas e fotos existem, por ano, e quantas faltam.

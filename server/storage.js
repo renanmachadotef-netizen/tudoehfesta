@@ -45,6 +45,16 @@ export async function fileSha(file) {
 }
 export const photoSha = fileSha;
 
+// Hora da foto gravada pela camera (EXIF): procura as datas "AAAA:MM:DD HH:MM:SS" e fica com a mais antiga
+// (a do clique; as outras sao de edicao). Devolve "AAAA-MM-DD HH:MM:SS" ou null.
+export function exifTime(meta) {
+  const raw = meta?.exif ? meta.exif.toString('latin1') : '';
+  const all = raw.match(/(?:19|20)\d\d:[01]\d:[0-3]\d [0-2]\d:[0-5]\d:[0-5]\d/g);
+  if (!all) return null;
+  const t = all.sort()[0];
+  return `${t.slice(0, 10).replace(/:/g, '-')} ${t.slice(11)}`;
+}
+
 // Guarda o original (move o arquivo temporario) e devolve os metadados.
 export async function saveOriginal({ tmpPath, eventId, photoId, originalName, sha256 }) {
   const meta = await sharp(tmpPath).metadata();
@@ -60,6 +70,7 @@ export async function saveOriginal({ tmpPath, eventId, photoId, originalName, sh
   });
   const rotated = meta.orientation && meta.orientation >= 5;
   return {
+    takenAt: exifTime(meta),
     originalPath: rel,
     sha256: sha256 || (await fileSha(abs)),
     bytes: size,

@@ -86,6 +86,8 @@ export default function EventPage() {
   const [tab, setTab] = useState('todas');
   const [mine, setMine] = useState(null); // resultado da busca facial
   const [searching, setSearching] = useState(false);
+  const [hours, setHours] = useState([]);
+  const [hour, setHour] = useState(null);
   const owned = useOwned();
   useTitle(event?.title);
 
@@ -95,12 +97,21 @@ export default function EventPage() {
     setTab('todas');
     api(`/events/${slug}`).then((d) => setEvent(d.event)).catch(setError);
     api(`/events/${slug}/photos?limit=200`).then((d) => setPhotos({ list: d.photos, more: d.more, loading: false, hidden: !!d.hidden, owner: !!d.owner })).catch(() => setPhotos({ list: [], more: false, loading: false }));
+    setHour(null);
+    api(`/events/${slug}/hours`).then((d) => setHours(d.hours || [])).catch(() => setHours([]));
   }, [slug]);
+
+  // Filtro por horario: recarrega a galeria so com as fotos daquela hora.
+  const pickHour = (h) => {
+    setHour(h);
+    setPhotos((p) => ({ ...p, loading: true }));
+    api(`/events/${slug}/photos?limit=200${h == null ? '' : `&hour=${h}`}`).then((d) => setPhotos((p) => ({ ...p, list: d.photos, more: d.more, loading: false }))).catch(() => setPhotos((p) => ({ ...p, loading: false })));
+  };
 
   const eventInfo = useMemo(() => (event ? { event_title: event.title, event_slug: event.slug, price_cents: event.price_cents } : {}), [event]);
 
   const loadMore = async () => {
-    const d = await api(`/events/${slug}/photos?limit=200&offset=${photos.list.length}`);
+    const d = await api(`/events/${slug}/photos?limit=200&offset=${photos.list.length}${hour == null ? '' : `&hour=${hour}`}`);
     setPhotos((p) => ({ list: [...p.list, ...d.photos], more: d.more, loading: false }));
   };
 
@@ -192,6 +203,17 @@ export default function EventPage() {
             <b>Fotos protegidas</b>
             <p className="muted small" style={{ maxWidth: 460 }}>Neste evento as fotos não ficam expostas: cada pessoa vê só as fotos em que aparece. Tire uma selfie acima para encontrar as suas entre as {event.photo_count} fotos.</p>
             {photos.owner && <p className="small" style={{ maxWidth: 460 }}>Você está logado como responsável pelo evento e vê esta página igual a um visitante. <Link to={`/painel/eventos/${event.id}`} style={{ textDecoration: 'underline' }}>Ver e gerenciar as fotos no painel</Link></p>}
+          </div>
+        )}
+        {tab === 'todas' && !hidden && hours.length > 1 && (
+          <div className="stack" style={{ gap: 6 }}>
+            <span className="tiny muted">Lembra mais ou menos a hora? Filtre pelas fotos daquele horário.</span>
+            <div className="chips">
+              <button className={`chip${hour == null ? ' active' : ''}`} onClick={() => pickHour(null)}>Todos os horários</button>
+              {hours.map((x) => (
+                <button key={x.hour} className={`chip${hour === x.hour ? ' active' : ''}`} onClick={() => pickHour(x.hour)}>{String(x.hour).padStart(2, '0')}h <em>{x.photos}</em></button>
+              ))}
+            </div>
           </div>
         )}
         {photos.loading ? <Loading /> : shown.length > 0 && <PhotoGrid photos={shown} owned={owned} eventInfo={eventInfo} />}

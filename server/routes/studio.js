@@ -272,6 +272,7 @@ r.post('/events/:id/photos', upload.single('file'), async (req, res) => {
     try {
       stored = await saveOriginal({ tmpPath: tmp, eventId: ev.id, photoId: photo.id, originalName: name, sha256: sha });
       key = await renderPhoto({ eventId: ev.id, photoId: photo.id, originalPath: stored.originalPath });
+      if (stored.takenAt) await db.query('update photos set taken_at = $2 where id = $1', [photo.id, stored.takenAt]);
     } catch (err) {
       await db.query('delete from photos where id = $1', [photo.id]);
       throw err;
