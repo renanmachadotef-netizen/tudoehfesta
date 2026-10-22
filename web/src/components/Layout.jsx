@@ -161,7 +161,13 @@ export default function Layout() {
   const { pathname } = useLocation();
   const { user } = useSite();
   useEffect(() => { attachCartSync(user, api); }, [user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { window.scrollTo(0, 0); }, [pathname]);
+  useEffect(() => {
+    window.scrollTo(0, 0);
+    // Contador de visitas proprio (sem cookie); o painel nao conta.
+    if (!panel) {
+      try { navigator.sendBeacon('/api/track', new Blob([JSON.stringify({ path: pathname })], { type: 'application/json' })); } catch { /* sem beacon */ }
+    }
+  }, [pathname]); // eslint-disable-line react-hooks/exhaustive-deps
   const panel = pathname.startsWith('/painel') || pathname.startsWith('/admin');
   return (
     <>

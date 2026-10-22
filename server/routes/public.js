@@ -263,6 +263,24 @@ r.get('/cart/restore/:token', async (req, res) => {
   res.json({ photos: await restorePhotos(ids) });
 });
 
+// Contador de visitas. Sem cookie e sem guardar IP: o visitante vira um codigo que muda todo dia
+// (IP + navegador + dia + segredo), so para contar pessoas diferentes. Robos ficam de fora.
+const BOT = /bot|crawl|spider|slurp|preview|facebookexternalhit|whatsapp|headless|lighthouse/i;
+r.post('/track', rateLimit('track', 120, 60_000), async (req, res) => {
+  res.status(204).end();
+  const ua = String(req.headers['user-agent'] || '');
+  const path = String(req.body?.path || '').slice(0, 200);
+  if (!path.startsWith('/') || BOT.test(ua) || /^\/(admin|painel)\b/.test(path)) return;
+  const seg = path.split('/')[1] || '';
+  const page = { '': 'inicio', evento: 'evento', ano: 'ano', buscar: 'selfie', eventos: 'eventos', categoria: 'eventos', carrinho: 'carrinho', pedido: 'pedido' }[seg] || 'outras';
+  let eventId = null;
+  if (seg === 'evento') eventId = (await db.one('select id from events where slug = $1', [path.split('/')[2] || '']).catch(() => null))?.id || null;
+  const device = /ipad|tablet/i.test(ua) ? 'tablet' : /mobi|android|iphone/i.test(ua) ? 'celular' : 'computador';
+  const day = new Date().toISOString().slice(0, 10);
+  const visitor = crypto.createHash('sha256').update(`${req.ip}|${ua}|${day}|${config.sessionSecret}`).digest('base64url').slice(0, 16);
+  await db.query('insert into visits (event_id, page, device, visitor) values ($1, $2, $3, $4)', [eventId, page, device, visitor]).catch(() => {});
+});
+
 r.post('/cart/price', async (req, res) => {
   res.json(await priceCart(req.body?.photoIds, req.body?.coupon));
 });

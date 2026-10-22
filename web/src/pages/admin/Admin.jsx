@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, NavLink, Navigate, Route, Routes } from 'react-router-dom';
-import { LayoutDashboard, Users, Receipt, Wallet, FolderOpen, Tag, Settings, UserCog, Camera, Stamp, Activity, ShoppingCart, Contact } from 'lucide-react';
+import { LayoutDashboard, Users, Receipt, Wallet, FolderOpen, Tag, Settings, UserCog, Camera, Stamp, Activity, ShoppingCart, Contact, BarChart3 } from 'lucide-react';
 import { api, uploadWithProgress } from '../../lib/api.js';
 import { useApi, useSite, useTitle } from '../../lib/site.jsx';
 import { money, dateTimeBR, dateBR, compact, centsToInput } from '../../lib/format.js';
@@ -13,6 +13,7 @@ import DisplaySelect from '../../components/DisplaySelect.jsx';
 import Live from './Live.jsx';
 import Recovery from './Recovery.jsx';
 import Clients from './Clients.jsx';
+import Visits from './Visits.jsx';
 
 function Dashboard() {
   const { data, loading, error } = useApi('/admin/dashboard');
@@ -565,6 +566,7 @@ export default function Admin() {
         <NavLink to="/admin/pedidos"><Receipt size={18} /> Pedidos</NavLink>
         <NavLink to="/admin/carrinhos"><ShoppingCart size={18} /> Carrinhos abandonados</NavLink>
         <NavLink to="/admin/clientes"><Contact size={18} /> Clientes</NavLink>
+        <NavLink to="/admin/visitas"><BarChart3 size={18} /> Visitas e conversão</NavLink>
         <NavLink to="/admin/fotografos"><Users size={18} /> Fotógrafos</NavLink>
         <NavLink to="/admin/saques"><Wallet size={18} /> Saques</NavLink>
         <NavLink to="/admin/eventos"><FolderOpen size={18} /> Eventos</NavLink>
@@ -582,6 +584,7 @@ export default function Admin() {
           <Route path="pedidos" element={<Orders />} />
           <Route path="carrinhos" element={<Recovery />} />
           <Route path="clientes" element={<Clients />} />
+          <Route path="visitas" element={<Visits />} />
           <Route path="fotografos" element={<Photographers />} />
           <Route path="saques" element={<Payouts />} />
           <Route path="eventos" element={<Events />} />

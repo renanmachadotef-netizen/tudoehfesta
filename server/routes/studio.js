@@ -677,6 +677,56 @@ r.get('/acervo', async (req, res) => {
   res.json({ years, year, groups: groups.map(eventCard) });
 });
 
+// Desempenho de um evento: visitas, conversao, vendas nos primeiros 30 dias, horario das vendas,
+// melhores clientes e cupons usados.
+r.get('/events/:id/insights', async (req, res) => {
+  const ev = await ownEvent(req, req.params.id);
+  const BR = (col) => `(${col} at time zone 'UTC' - interval '3 hours')`;
+  const paid = `from order_items oi join orders o on o.id = oi.order_id and o.status = 'paid' where oi.event_id = $1`;
+  const [t, first30, byHour, top, coupons] = await Promise.all([
+    db.one(
+      `select (select count(*) from visits where event_id = $1)::int as visits,
+              (select count(distinct visitor) from visits where event_id = $1)::int as visitors,
+              (select count(*) from photos where event_id = $1 and key is not null and not hidden)::int as photo_count,
+              (select count(distinct o.id) ${paid})::int as orders,
+              (select count(distinct oi.photo_id) ${paid})::int as photos_sold,
+              (select coalesce(sum(oi.price_cents), 0) ${paid})::int as cents,
+              (select coalesce(sum(oi.photographer_cents), 0) ${paid})::int as net_cents`,
+      [ev.id],
+    ),
+    db.many(
+      `select (${BR('o.paid_at')}::date - $2::date) as d, coalesce(sum(oi.price_cents), 0)::int as cents
+         ${paid} and ${BR('o.paid_at')}::date between $2::date and $2::date + 29 group by 1 order by 1`,
+      [ev.id, String(ev.event_date).slice(0, 10)],
+    ),
+    db.many(`select extract(hour from ${BR('o.paid_at')})::int as h, count(distinct o.id)::int as orders ${paid} group by 1`, [ev.id]),
+    db.many(
+      `select u.name, coalesce(sum(oi.price_cents), 0)::int as cents, count(*)::int as photos
+         from order_items oi join orders o on o.id = oi.order_id and o.status = 'paid' join users u on u.id = o.user_id
+        where oi.event_id = $1 group by u.id order by cents desc limit 5`,
+      [ev.id],
+    ),
+    db.many(
+      `select o.coupon_code as code, count(distinct o.id)::int as uses from order_items oi join orders o on o.id = oi.order_id and o.status = 'paid'
+        where oi.event_id = $1 and o.coupon_code is not null group by 1 order by 2 desc limit 5`,
+      [ev.id],
+    ),
+  ]);
+  let acc = 0;
+  const cumulative = Array.from({ length: 30 }, (_, d) => { acc += first30.find((r) => Number(r.d) === d)?.cents || 0; return acc; });
+  const shortName = (n) => { const p = String(n || '').trim().split(/\s+/); return p.length > 1 ? `${p[0]} ${p[p.length - 1][0]}.` : p[0]; };
+  res.json({
+    ...t,
+    pct_sold: t.photo_count ? t.photos_sold / t.photo_count : 0,
+    ticket_cents: t.orders ? Math.round(t.cents / t.orders) : 0,
+    conversion: t.visitors ? t.orders / t.visitors : 0,
+    first30: cumulative,
+    byHour: Array.from({ length: 24 }, (_, h) => byHour.find((r) => r.h === h)?.orders || 0),
+    topClients: top.map((c) => ({ name: shortName(c.name), cents: c.cents, photos: c.photos })),
+    coupons,
+  });
+});
+
 // Acervo do ano (pastas importadas pela pasta geral), para escolher a tag ao cadastrar um evento.
 r.get('/pool', async (req, res) => {
   const q = cleanText(req.query.q, 80);

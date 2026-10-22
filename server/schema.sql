@@ -314,3 +314,15 @@ alter table coupons add column if not exists free_photos integer;
 alter table coupons add column if not exists starts_at date;
 alter table coupons add column if not exists ends_at date;
 alter table coupons add column if not exists batch text;
+
+-- v14: visitas (contador proprio, sem cookie): pagina, evento, aparelho e um identificador diario anonimo
+create table if not exists visits (
+  id bigserial primary key,
+  at timestamptz not null default now(),
+  event_id integer references events(id) on delete set null,
+  page text not null,
+  device text not null,
+  visitor text not null
+);
+create index if not exists visits_at_idx on visits (at);
+create index if not exists visits_event_idx on visits (event_id, at) where event_id is not null;

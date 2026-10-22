@@ -9,6 +9,7 @@ import { Loading, ErrorBox } from '../../components/Layout.jsx';
 import { EVENT_STATUS } from './EventsList.jsx';
 import EventDrive from './EventDrive.jsx';
 import DisplaySelect from '../../components/DisplaySelect.jsx';
+import EventInsights from './EventInsights.jsx';
 import { EventCard } from '../../components/Photos.jsx';
 
 const blank = { title: '', event_date: new Date().toISOString().slice(0, 10), category_id: '', city: '', venue: '', description: '', price: '15,00', pack_price: '', discount_tiers: [{ min: 5, pct: 20 }], status: 'draft', hide_gallery: false, watermark_mode: 'site', visibility: 'public', password: '', publish_at: '' };
@@ -454,6 +455,7 @@ export default function EventEditor() {
           <DisplaySelect event={event} onChanged={() => api(`/studio/events/${event.id}`).then((x) => { setEvent(x.event); setQueue(x.queue); })} />
         </div>
       )}
+      {event.id && photos.length > 0 && <EventInsights eventId={event.id} />}
       {event.id && photos.length > 0 && (
         <CoverPicker event={event} photos={photos} onCover={() => api(`/studio/events/${event.id}`).then((x) => setEvent(x.event))} />
       )}

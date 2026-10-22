@@ -359,6 +359,51 @@ r.put('/abandoned/:kind/:id', async (req, res) => {
   res.json({ ok: true });
 });
 
+// ----- Visitas e conversao -----
+// Horario de Brasilia (UTC-3) para dia, dia da semana e hora.
+const BR = (col) => `(${col} at time zone 'UTC' - interval '3 hours')`;
+r.get('/visits', async (req, res) => {
+  const days = [7, 30, 90, 365].includes(Number(req.query.days)) ? Number(req.query.days) : 30;
+  const since = `now() - make_interval(days => ${days})`;
+  const [totals, byDay, byWeekday, byHour, byDevice, byPage, topEvents] = await Promise.all([
+    db.one(
+      `select (select count(*) from visits where at >= ${since})::int as visits,
+              (select count(distinct visitor) from visits where at >= ${since})::int as visitors,
+              (select count(*) from orders where status = 'paid' and paid_at >= ${since})::int as orders,
+              (select coalesce(sum(total_cents), 0) from orders where status = 'paid' and paid_at >= ${since})::int as cents,
+              (select count(*) from order_items oi join orders o on o.id = oi.order_id and o.status = 'paid' where o.paid_at >= ${since})::int as photos`,
+    ),
+    db.many(
+      `select d::date::text as day,
+              (select count(*) from visits v where ${BR('v.at')}::date = d::date)::int as visits,
+              (select count(distinct visitor) from visits v where ${BR('v.at')}::date = d::date)::int as visitors,
+              (select count(*) from orders o where o.status = 'paid' and ${BR('o.paid_at')}::date = d::date)::int as orders,
+              (select coalesce(sum(total_cents), 0) from orders o where o.status = 'paid' and ${BR('o.paid_at')}::date = d::date)::int as cents
+         from generate_series((${BR('now()')})::date - ${days - 1}, (${BR('now()')})::date, interval '1 day') d order by d`,
+    ),
+    db.many(`select extract(dow from ${BR('at')})::int as k, count(*)::int as visits from visits where at >= ${since} group by 1`),
+    db.many(`select extract(hour from ${BR('at')})::int as k, count(*)::int as visits from visits where at >= ${since} group by 1`),
+    db.many(`select device as k, count(*)::int as visits, count(distinct visitor)::int as visitors from visits where at >= ${since} group by 1 order by 2 desc`),
+    db.many(`select page as k, count(*)::int as visits from visits where at >= ${since} group by 1 order by 2 desc`),
+    db.many(
+      `select e.id, e.title, e.slug, e.kind, count(v.id)::int as visits, count(distinct v.visitor)::int as visitors,
+              (select count(distinct o.id) from orders o join order_items oi on oi.order_id = o.id
+                where o.status = 'paid' and o.paid_at >= ${since} and oi.event_id = e.id)::int as orders,
+              (select count(*) from orders o join order_items oi on oi.order_id = o.id
+                where o.status = 'paid' and o.paid_at >= ${since} and oi.event_id = e.id)::int as photos,
+              (select coalesce(sum(oi.price_cents), 0) from orders o join order_items oi on oi.order_id = o.id
+                where o.status = 'paid' and o.paid_at >= ${since} and oi.event_id = e.id)::int as cents
+         from visits v join events e on e.id = v.event_id
+        where v.at >= ${since} group by e.id order by visits desc limit 20`,
+    ),
+  ]);
+  const fill = (rows, n) => Array.from({ length: n }, (_, k) => rows.find((r) => r.k === k)?.visits || 0);
+  res.json({
+    days, totals, byDay, byWeekday: fill(byWeekday, 7), byHour: fill(byHour, 24), byDevice, byPage,
+    topEvents: topEvents.map((e) => ({ ...e, conversion: e.visitors ? e.orders / e.visitors : 0 })),
+  });
+});
+
 // ----- Clientes: quem comprou, quanto e quando -----
 const CLIENTS_SQL = `
   select u.id, u.name, u.email, u.phone, u.created_at,
