@@ -330,3 +330,18 @@ create index if not exists visits_event_idx on visits (event_id, at) where event
 -- v15: hora em que a foto foi tirada (relogio da camera), para o filtro por horario na galeria do evento
 alter table photos add column if not exists taken_at timestamp;
 create index if not exists photos_event_taken_idx on photos (event_id, taken_at) where taken_at is not null;
+
+-- v16: varios fotografos no mesmo evento. O dono do evento convida fotografos (equipe); cada foto continua
+-- sendo de quem a tirou. Na venda de foto de convidado, o organizador fica com organizer_pct do valor.
+create table if not exists event_team (
+  event_id integer not null references events(id) on delete cascade,
+  user_id integer not null references users(id) on delete cascade,
+  max_photos integer,
+  upload_until timestamptz,
+  added_at timestamptz not null default now(),
+  primary key (event_id, user_id)
+);
+create index if not exists event_team_user_idx on event_team (user_id);
+alter table events add column if not exists organizer_pct integer not null default 0;
+alter table order_items add column if not exists organizer_id integer references users(id);
+alter table order_items add column if not exists organizer_cents integer not null default 0;

@@ -82,9 +82,9 @@ r.post('/orders', requireUser, rateLimit('orders', 20, 60_000), async (req, res)
     )).rows[0];
     for (const it of priced.items) {
       await t.query(
-        `insert into order_items (order_id, photo_id, event_id, photographer_id, price_cents, commission_cents, photographer_cents)
-         values ($1, $2, $3, $4, $5, $6, $7)`,
-        [o.id, it.photo_id, it.event_id, it.photographer_id, it.price_cents, it.commission_cents, it.photographer_cents],
+        `insert into order_items (order_id, photo_id, event_id, photographer_id, price_cents, commission_cents, photographer_cents, organizer_id, organizer_cents)
+         values ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+        [o.id, it.photo_id, it.event_id, it.photographer_id, it.price_cents, it.commission_cents, it.photographer_cents, it.organizer_id || null, it.organizer_cents || 0],
       );
     }
     return o;

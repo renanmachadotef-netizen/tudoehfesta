@@ -45,15 +45,20 @@ export const toCents = (v) => {
 export const isEmail = (s) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(s || ''));
 
 // Saldo do fotografo: vendas pagas ha mais de N dias (prazo para estorno) menos saques pedidos/pagos.
+// Quanto uma venda rendeu para o usuario $n: como autor da foto (photographer_cents) e como organizador do
+// evento que recebeu a parte dele sobre a foto de um convidado (organizer_cents).
+export const myCents = (n = '$1') => `(case when oi.photographer_id = ${n} then oi.photographer_cents else 0 end + case when oi.organizer_id = ${n} then oi.organizer_cents else 0 end)`;
+export const isMine = (n = '$1') => `(oi.photographer_id = ${n} or oi.organizer_id = ${n})`;
+
 export async function photographerBalance(userId) {
   const releaseDays = Number(await getSetting('release_days', 3));
   const r = await db.one(
     `select
-       coalesce(sum(oi.photographer_cents) filter (where o.paid_at <= now() - make_interval(days => $2)), 0)::int8 as released,
-       coalesce(sum(oi.photographer_cents) filter (where o.paid_at >  now() - make_interval(days => $2)), 0)::int8 as pending,
-       coalesce(sum(oi.photographer_cents), 0)::int8 as lifetime
+       coalesce(sum(${myCents()}) filter (where o.paid_at <= now() - make_interval(days => $2)), 0)::int8 as released,
+       coalesce(sum(${myCents()}) filter (where o.paid_at >  now() - make_interval(days => $2)), 0)::int8 as pending,
+       coalesce(sum(${myCents()}), 0)::int8 as lifetime
      from order_items oi join orders o on o.id = oi.order_id and o.status = 'paid'
-     where oi.photographer_id = $1`,
+     where ${isMine()}`,
     [userId, releaseDays],
   );
   const p = await db.one(

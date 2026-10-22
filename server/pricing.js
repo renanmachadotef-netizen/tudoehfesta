@@ -85,10 +85,10 @@ export async function priceCart(photoIds, couponCode) {
 
   const rows = await db.many(
     `select p.id as photo_id, p.event_id, p.key, e.title, e.slug, e.price_cents, e.pack_price_cents, e.discount_tiers, e.kind, e.event_date,
-            e.photographer_id, ph.commission_pct
+            e.photographer_id, e.organizer_pct, coalesce(p.photographer_id, e.photographer_id) as photo_owner, ph.commission_pct
        from photos p
        join events e on e.id = p.event_id and e.status = 'published'
-       left join photographers ph on ph.user_id = e.photographer_id
+       left join photographers ph on ph.user_id = coalesce(p.photographer_id, e.photographer_id)
       where p.id = any($1::int[]) and not p.hidden
       order by p.event_id, p.id`,
     [ids],
@@ -131,21 +131,29 @@ export async function priceCart(photoIds, couponCode) {
       total = Math.round(total * (1 - coupon.pct / 100));
       couponUsed = true;
     }
-    const pct = meta.commission_pct != null ? Number(meta.commission_pct) : globalPct;
     const each = Math.floor(total / n);
     let rest = total - each * n;
     for (const ph of photos) {
       const photoId = ph.photo_id;
       const itemPrice = each + (rest-- > 0 ? 1 : 0);
+      // Divisao: comissao do site (a do autor da foto, ou a padrao), parte do organizador quando a foto e de
+      // um fotografo convidado, e o resto para o autor.
+      const pct = ph.commission_pct != null ? Number(ph.commission_pct) : globalPct;
+      const guest = ph.photo_owner !== meta.photographer_id;
+      const orgPct = guest ? Math.max(0, Math.min(50, Number(meta.organizer_pct) || 0)) : 0;
       const commission = Math.round((itemPrice * pct) / 100);
+      const organizer = Math.round((itemPrice * orgPct) / 100);
       items.push({
         photo_id: photoId,
         event_id: meta.event_id,
-        photographer_id: meta.photographer_id,
+        photographer_id: ph.photo_owner,
+        organizer_id: orgPct ? meta.photographer_id : null,
+        organizer_cents: organizer,
         price_cents: itemPrice,
         commission_cents: commission,
-        photographer_cents: itemPrice - commission,
+        photographer_cents: itemPrice - commission - organizer,
         _pct: pct,
+        _org: orgPct,
         _coupon: !!couponOk,
         thumb: thumbUrl(ph.event_id, photoId, ph.key),
       });
@@ -188,7 +196,8 @@ export async function priceCart(photoIds, couponCode) {
       couponUsed = true;
       for (const it of eligible) {
         it.commission_cents = Math.round((it.price_cents * it._pct) / 100);
-        it.photographer_cents = it.price_cents - it.commission_cents;
+        it.organizer_cents = Math.round((it.price_cents * it._org) / 100);
+        it.photographer_cents = it.price_cents - it.commission_cents - it.organizer_cents;
       }
       for (const g of groups) {
         g.total_cents = items.filter((it) => it.event_id === g.event_id).reduce((s, it) => s + it.price_cents, 0);
@@ -198,6 +207,7 @@ export async function priceCart(photoIds, couponCode) {
   }
   for (const it of items) {
     delete it._pct;
+    delete it._org;
     delete it._coupon;
   }
   const subtotal = groups.reduce((s, g) => s + g.base_cents, 0);

@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { Upload, Trash2, Star, ScanFace, Plus, X, ExternalLink, Copy, Download, MessageCircle, ArrowLeft, EyeOff, Eye, HardDrive, RefreshCw } from 'lucide-react';
 import { api, uploadWithProgress } from '../../lib/api.js';
 import { useSite } from '../../lib/site.jsx';
-import { centsToInput, money, dateBR } from '../../lib/format.js';
+import { centsToInput, money, dateBR, dateTimeBR } from '../../lib/format.js';
 import { detectFaces, fileToCanvas, loadFaceApi } from '../../lib/faces.js';
 import { Loading, ErrorBox } from '../../components/Layout.jsx';
 import { EVENT_STATUS } from './EventsList.jsx';
@@ -11,6 +11,7 @@ import EventDrive from './EventDrive.jsx';
 import DisplaySelect from '../../components/DisplaySelect.jsx';
 import EventInsights from './EventInsights.jsx';
 import ArtEditor from './ArtEditor.jsx';
+import EventTeam from './EventTeam.jsx';
 import { EventCard } from '../../components/Photos.jsx';
 
 const blank = { title: '', event_date: new Date().toISOString().slice(0, 10), category_id: '', city: '', venue: '', description: '', price: '15,00', pack_price: '', discount_tiers: [{ min: 5, pct: 20 }], status: 'draft', hide_gallery: false, watermark_mode: 'site', visibility: 'public', password: '', publish_at: '' };
@@ -307,8 +308,11 @@ function CoverPicker({ event, photos, onCover }) {
   );
 }
 
-function PhotosManager({ event, photos, setPhotos, onCover, onQueued }) {
+function PhotosManager({ event, photos: all, setPhotos, onCover, onQueued, team = false }) {
   const { toast } = useSite();
+  const [by, setBy] = useState(null);
+  const authors = [...new Map(all.filter((p) => p.photographer_id).map((p) => [p.photographer_id, p.photographer_name])).entries()];
+  const photos = by ? all.filter((p) => p.photographer_id === by) : all;
   const del = async (p) => {
     if (!confirm('Excluir esta foto?')) return;
     try {
@@ -332,23 +336,29 @@ function PhotosManager({ event, photos, setPhotos, onCover, onQueued }) {
     onCover(p.id);
     toast('Capa definida');
   };
-  if (!photos.length) return null;
+  if (!all.length) return null;
   const noFaces = photos.filter((p) => !p.faces).length;
   const hiddenCount = photos.filter((p) => p.hidden).length;
   return (
     <div className="card stack">
       <div className="row between"><h3>Fotos ({photos.length}){hiddenCount > 0 && <span className="small muted" style={{ fontWeight: 500 }}> · {hiddenCount} oculta(s)</span>}</h3>
         <span className="row small muted">{noFaces} sem rosto detectado
-          {noFaces > 0 && <button className="btn btn-sm btn-soft" onClick={async () => { const d = await api(`/studio/events/${event.id}/reindex`, { method: 'POST' }); toast(`${d.queued} foto(s) na fila do servidor`); onQueued?.(d.queued); }}><RefreshCw size={13} /> Procurar de novo</button>}
+          {noFaces > 0 && !team && <button className="btn btn-sm btn-soft" onClick={async () => { const d = await api(`/studio/events/${event.id}/reindex`, { method: 'POST' }); toast(`${d.queued} foto(s) na fila do servidor`); onQueued?.(d.queued); }}><RefreshCw size={13} /> Procurar de novo</button>}
         </span>
       </div>
+      {!team && authors.length > 1 && (
+        <div className="chips">
+          <button className={`chip${by == null ? ' active' : ''}`} onClick={() => setBy(null)}>Todos os fotógrafos <em>{all.length}</em></button>
+          {authors.map(([id, name]) => <button key={id} className={`chip${by === id ? ' active' : ''}`} onClick={() => setBy(id)}>{name} <em>{all.filter((p) => p.photographer_id === id).length}</em></button>)}
+        </div>
+      )}
       <div className="studio-photos">
         {photos.map((p) => (
           <div key={p.id} className={`studio-photo${p.hidden ? ' is-hidden' : ''}`}>
             <img src={p.thumb} alt="" loading="lazy" />
             <div className="acts">
-              <button title={p.hidden ? 'Mostrar no site' : 'Ocultar do site'} onClick={() => toggleHidden(p)}>{p.hidden ? <Eye size={14} /> : <EyeOff size={14} />}</button>
-              <button title="Usar como capa" onClick={() => cover(p)}><Star size={14} fill={event.cover_photo_id === p.id ? '#ffb21a' : 'none'} /></button>
+              {!team && <button title={p.hidden ? 'Mostrar no site' : 'Ocultar do site'} onClick={() => toggleHidden(p)}>{p.hidden ? <Eye size={14} /> : <EyeOff size={14} />}</button>}
+              {!team && <button title="Usar como capa" onClick={() => cover(p)}><Star size={14} fill={event.cover_photo_id === p.id ? '#ffb21a' : 'none'} /></button>}
               {!p.sold && <button title="Excluir" onClick={() => del(p)}><Trash2 size={14} /></button>}
             </div>
             <div className="ov">
@@ -395,6 +405,29 @@ export default function EventEditor() {
 
   if (error) return <ErrorBox error={error} />;
   if (!event) return <Loading />;
+  if (event.role === 'team') {
+    const t = event.team || {};
+    const closed = t.upload_until && new Date(t.upload_until) < new Date();
+    const full = t.max_photos && t.photos >= t.max_photos;
+    return (
+      <div className="stack" style={{ gap: 20, maxWidth: 1000 }}>
+        <div className="row">
+          <Link to="/painel/eventos" className="icon-btn" aria-label="Voltar"><ArrowLeft size={18} /></Link>
+          <h2>{event.title}</h2>
+          <span className="badge badge-accent">Colaboração</span>
+        </div>
+        <div className="kpis">
+          <div className="kpi"><span>Suas fotos no evento</span><b>{t.photos}{t.max_photos ? ` de ${t.max_photos}` : ''}</b><small>{t.max_photos ? 'limite combinado com o organizador' : 'sem limite de fotos'}</small></div>
+          <div className="kpi"><span>Suas vendas aqui</span><b>{money(t.cents)}</b><small>já descontadas a comissão do site{t.organizer_pct ? ` e a parte do organizador (${t.organizer_pct}%)` : ''}</small></div>
+          <div className="kpi"><span>Envio de fotos</span><b>{closed ? 'Encerrado' : 'Aberto'}</b><small>{t.upload_until ? `até ${dateTimeBR(t.upload_until)}` : 'sem prazo'}</small></div>
+        </div>
+        {closed || full
+          ? <div className="alert alert-warn">{closed ? 'O prazo de envio deste evento terminou.' : 'Você chegou ao limite de fotos deste evento.'} Fale com o organizador se precisar enviar mais.</div>
+          : <Uploader eventId={event.id} onUploaded={(p) => { if (p) setPhotos((list) => [...list, { ...p, sold: 0 }]); }} />}
+        <PhotosManager event={event} photos={photos} setPhotos={setPhotos} onCover={() => {}} team />
+      </div>
+    );
+  }
 
   const initial = event.id ? {
     id: event.id, title: event.title, event_date: event.event_date, category_id: event.category_id || '', city: event.city, venue: event.venue,
@@ -481,6 +514,7 @@ export default function EventEditor() {
       />
 
       {event.id && <PhotosManager event={event} photos={photos} setPhotos={setPhotos} onCover={(pid) => setEvent({ ...event, cover_photo_id: pid })} onQueued={(n) => n && setQueue((q) => ({ render: q?.render || 0, faces: (q?.faces || 0) + n }))} />}
+      {event.id && event.kind !== 'pool' && <EventTeam eventId={event.id} />}
       {event.id && event.status === 'published' && <ShareKit event={event} />}
       {event.id && photos.length > 0 && <ArtEditor event={event} photos={photos} />}
       {event.id && <button className="btn btn-danger btn-sm" style={{ alignSelf: 'flex-start' }} onClick={remove}><Trash2 size={14} /> Excluir evento</button>}

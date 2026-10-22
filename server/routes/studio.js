@@ -13,7 +13,7 @@ import { queueStatus } from '../jobs.js';
 import { encodeDescriptor, invalidateFaces } from '../faces.js';
 import { getSetting, setSetting, effectivePrice } from '../pricing.js';
 import { EVENT_CARD, EVENT_JOINS, eventCard, photoOut } from './public.js';
-import { fail, cleanText, toCents, uniqueSlug, photographerBalance } from '../util.js';
+import { fail, cleanText, toCents, uniqueSlug, photographerBalance, myCents, isMine } from '../util.js';
 
 const r = Router();
 const upload = multer({
@@ -53,6 +53,16 @@ r.post('/profile/avatar', requireUser, upload.single('file'), async (req, res) =
 
 r.use(requirePhotographer);
 
+// Dono do evento, admin ou fotografo convidado (equipe). role: 'owner' | 'team'.
+async function teamEvent(req, id) {
+  const ev = await db.one('select * from events where id = $1', [Number(id)]);
+  if (!ev) fail(404, 'Evento não encontrado.');
+  if (ev.photographer_id === req.user.id || req.user.role === 'admin') return { ev, role: 'owner', member: null };
+  const member = await db.one('select * from event_team where event_id = $1 and user_id = $2', [ev.id, req.user.id]);
+  if (!member) fail(404, 'Evento não encontrado.');
+  return { ev, role: 'team', member };
+}
+
 async function ownEvent(req, id) {
   const ev = await db.one('select * from events where id = $1', [Number(id)]);
   if (!ev || (ev.photographer_id !== req.user.id && req.user.role !== 'admin')) fail(404, 'Evento não encontrado.');
@@ -64,19 +74,19 @@ r.get('/dashboard', async (req, res) => {
   const [totals, series, topEvents, recent, balance, counts] = await Promise.all([
     db.one(
       `select
-         coalesce(sum(oi.photographer_cents) filter (where o.paid_at >= date_trunc('day', now())), 0)::int8 as today,
-         coalesce(sum(oi.photographer_cents) filter (where o.paid_at >= now() - interval '7 days'), 0)::int8 as week,
-         coalesce(sum(oi.photographer_cents) filter (where o.paid_at >= date_trunc('month', now())), 0)::int8 as month,
+         coalesce(sum(${myCents()}) filter (where o.paid_at >= date_trunc('day', now())), 0)::int8 as today,
+         coalesce(sum(${myCents()}) filter (where o.paid_at >= now() - interval '7 days'), 0)::int8 as week,
+         coalesce(sum(${myCents()}) filter (where o.paid_at >= date_trunc('month', now())), 0)::int8 as month,
          count(oi.id) filter (where o.paid_at >= date_trunc('month', now()))::int as photos_month,
          count(distinct o.user_id) filter (where o.paid_at >= date_trunc('month', now()))::int as buyers_month
-       from order_items oi join orders o on o.id = oi.order_id and o.status = 'paid' where oi.photographer_id = $1`,
+       from order_items oi join orders o on o.id = oi.order_id and o.status = 'paid' where ${isMine()}`,
       [uid],
     ),
     db.many(
-      `select to_char(d, 'YYYY-MM-DD') as day, coalesce(sum(oi.photographer_cents), 0)::int8 as cents, count(oi.id)::int as photos
+      `select to_char(d, 'YYYY-MM-DD') as day, coalesce(sum(${myCents()}), 0)::int8 as cents, count(oi.id)::int as photos
          from generate_series(date_trunc('day', now()) - interval '29 days', date_trunc('day', now()), interval '1 day') d
          left join orders o on o.status = 'paid' and date_trunc('day', o.paid_at) = d
-         left join order_items oi on oi.order_id = o.id and oi.photographer_id = $1
+         left join order_items oi on oi.order_id = o.id and ${isMine()}
         group by d order by d`,
       [uid],
     ),
@@ -90,10 +100,10 @@ r.get('/dashboard', async (req, res) => {
       [uid],
     ),
     db.many(
-      `select o.code, o.paid_at, u.name as buyer, count(oi.id)::int as photos, sum(oi.photographer_cents)::int8 as cents, min(e.title) as event_title
+      `select o.code, o.paid_at, u.name as buyer, count(oi.id)::int as photos, sum(${myCents()})::int8 as cents, min(e.title) as event_title
          from order_items oi join orders o on o.id = oi.order_id and o.status = 'paid'
          join users u on u.id = o.user_id join events e on e.id = oi.event_id
-        where oi.photographer_id = $1 group by o.id, u.name order by o.paid_at desc limit 10`,
+        where ${isMine()} group by o.id, u.name order by o.paid_at desc limit 10`,
       [uid],
     ),
     photographerBalance(uid),
@@ -108,9 +118,9 @@ r.get('/dashboard', async (req, res) => {
 });
 
 r.get('/events', async (req, res) => {
-  const mine = req.user.role === 'admin' && req.query.all ? '' : 'where e.photographer_id = $1';
+  const mine = req.user.role === 'admin' && req.query.all ? '' : 'where e.photographer_id = $1 or e.id in (select event_id from event_team where user_id = $1)';
   const rows = await db.many(
-    `select ${EVENT_CARD}, e.views,
+    `select ${EVENT_CARD}, e.views, ${mine ? '(e.photographer_id <> $1)' : 'false'} as is_team,
             (select count(*) from faces f where f.event_id = e.id)::int as face_count,
             (select coalesce(sum(oi.photographer_cents), 0) from order_items oi join orders o on o.id = oi.order_id and o.status = 'paid'
               where oi.event_id = e.id)::int8 as revenue_cents
@@ -171,13 +181,23 @@ r.post('/events', async (req, res) => {
 });
 
 r.get('/events/:id', async (req, res) => {
-  const ev = await ownEvent(req, req.params.id);
+  const { ev, role, member } = await teamEvent(req, req.params.id);
   const row = await db.one(
     `select ${EVENT_CARD}, e.description, e.views, e.cover_photo_id, e.drive_folder_id, e.auto_publish,
             (select count(*) from faces f where f.event_id = e.id)::int as face_count ${EVENT_JOINS} where e.id = $1`,
     [ev.id],
   );
-  res.json({ event: { ...eventCard(row), pricing: effectivePrice(row) }, queue: await queueStatus('p.event_id = $1', [ev.id]) });
+  let team = null;
+  if (role === 'team') {
+    const mine = await db.one(
+      `select (select count(*) from photos where event_id = $1 and photographer_id = $2)::int as photos,
+              (select coalesce(sum(oi.photographer_cents), 0) from order_items oi join orders o on o.id = oi.order_id and o.status = 'paid'
+                where oi.event_id = $1 and oi.photographer_id = $2)::int as cents`,
+      [ev.id, req.user.id],
+    );
+    team = { max_photos: member.max_photos, upload_until: member.upload_until, organizer_pct: ev.organizer_pct, ...mine };
+  }
+  res.json({ event: { ...eventCard(row), pricing: effectivePrice(row), role, team, organizer_pct: ev.organizer_pct }, queue: await queueStatus('p.event_id = $1', [ev.id]) });
 });
 
 r.put('/events/:id', async (req, res) => {
@@ -230,23 +250,35 @@ r.put('/events/:id/cover', async (req, res) => {
 });
 
 r.get('/events/:id/photos', async (req, res) => {
-  const ev = await ownEvent(req, req.params.id);
+  const { ev, role } = await teamEvent(req, req.params.id);
   const rows = await db.many(
     `select p.id, p.event_id, p.width, p.height, p.key, p.faces_count, p.original_name, p.needs_faces, p.needs_render, p.hidden,
+            p.photographer_id, coalesce(ph.display_name, u.name) as photographer_name,
             (select count(*) from order_items oi join orders o on o.id = oi.order_id and o.status = 'paid' where oi.photo_id = p.id)::int as sold
-       from photos p where p.event_id = $1 and p.key is not null order by p.sort_key nulls last, p.id`,
-    [ev.id],
+       from photos p left join photographers ph on ph.user_id = p.photographer_id left join users u on u.id = p.photographer_id
+      where p.event_id = $1 and p.key is not null and ($2::int is null or p.photographer_id = $2)
+      order by p.sort_key nulls last, p.id`,
+    [ev.id, role === 'team' ? req.user.id : null],
   );
   res.json({
-    photos: rows.map((p) => ({ ...photoOut(p), faces: p.faces_count, name: p.original_name, sold: p.sold, pending: p.needs_faces || p.needs_render, hidden: p.hidden })),
+    photos: rows.map((p) => ({ ...photoOut(p), faces: p.faces_count, name: p.original_name, sold: p.sold, pending: p.needs_faces || p.needs_render, hidden: p.hidden, photographer_id: p.photographer_id, photographer_name: p.photographer_name })),
   });
 });
 
 // Upload de uma foto por requisicao (o navegador manda varias em paralelo). Normalmente os rostos chegam
 // calculados pelo navegador do fotografo; sem eles (faces_done ausente) o servidor indexa em segundo plano.
 r.post('/events/:id/photos', upload.single('file'), async (req, res) => {
-  const ev = await ownEvent(req, req.params.id);
+  const { ev, role, member } = await teamEvent(req, req.params.id);
   if (!req.file) fail(400, 'Arquivo inválido: envie JPG, PNG ou WEBP.');
+  const uploader = role === 'team' ? req.user.id : ev.photographer_id;
+  if (role === 'team') {
+    const drop = () => fsp.unlink(req.file.path).catch(() => {});
+    if (member.upload_until && new Date(member.upload_until) < new Date()) { await drop(); fail(403, 'O prazo de envio de fotos para este evento terminou.'); }
+    if (member.max_photos) {
+      const n = await db.one('select count(*)::int as n from photos where event_id = $1 and photographer_id = $2', [ev.id, req.user.id]);
+      if (n.n >= member.max_photos) { await drop(); fail(403, `Você já enviou o limite de ${member.max_photos} fotos para este evento.`); }
+    }
+  }
   const tmp = req.file.path;
   try {
     const sha = await photoSha(tmp);
@@ -265,7 +297,7 @@ r.post('/events/:id/photos', upload.single('file'), async (req, res) => {
     const name = cleanText(req.body.name || req.file.originalname, 200);
     const photo = await db.one(
       `insert into photos (event_id, photographer_id, original_name, original_path, sort_key) values ($1, $2, $3, '', $4) returning id`,
-      [ev.id, ev.photographer_id, name, cleanText(req.body.sort_key || name, 200)],
+      [ev.id, uploader, name, cleanText(req.body.sort_key || name, 200)],
     );
     let stored;
     let key;
@@ -345,7 +377,7 @@ r.put('/events/:id/display', async (req, res) => {
 
 r.delete('/photos/:id', async (req, res) => {
   const p = await db.one('select p.*, e.photographer_id as owner from photos p join events e on e.id = p.event_id where p.id = $1', [Number(req.params.id)]);
-  if (!p || (p.owner !== req.user.id && req.user.role !== 'admin')) fail(404, 'Foto não encontrada.');
+  if (!p || (p.owner !== req.user.id && p.photographer_id !== req.user.id && req.user.role !== 'admin')) fail(404, 'Foto não encontrada.');
   const sold = await db.one('select count(*)::int as n from order_items where photo_id = $1', [p.id]);
   if (sold.n) fail(409, 'Esta foto já foi vendida e precisa continuar disponível para o cliente.');
   await db.query('update events set cover_photo_id = null where cover_photo_id = $1', [p.id]);
@@ -359,10 +391,10 @@ r.get('/sales', async (req, res) => {
   const rows = await db.many(
     `select o.code, o.paid_at, u.name as buyer, e.title as event_title, e.slug as event_slug,
             count(oi.id)::int as photos, sum(oi.price_cents)::int8 as gross_cents, sum(oi.commission_cents)::int8 as commission_cents,
-            sum(oi.photographer_cents)::int8 as net_cents
+            sum(${myCents()})::int8 as net_cents
        from order_items oi join orders o on o.id = oi.order_id and o.status = 'paid'
        join users u on u.id = o.user_id join events e on e.id = oi.event_id
-      where oi.photographer_id = $1 and ($2::int is null or oi.event_id = $2)
+      where ${isMine()} and ($2::int is null or oi.event_id = $2)
       group by o.id, u.name, e.id order by o.paid_at desc limit 300`,
     [req.user.id, Number(req.query.event) || null],
   );
@@ -676,6 +708,74 @@ r.get('/acervo', async (req, res) => {
     [...scope, year],
   ) : [];
   res.json({ years, year, groups: groups.map(eventCard) });
+});
+
+// ----- Equipe do evento (varios fotografos) -----
+r.get('/events/:id/team', async (req, res) => {
+  const ev = await ownEvent(req, req.params.id);
+  const stats = `(select count(*) from photos p where p.event_id = $1 and p.photographer_id = u.id)::int as photos,
+          (select count(*) from order_items oi join orders o on o.id = oi.order_id and o.status = 'paid' where oi.event_id = $1 and oi.photographer_id = u.id)::int as sold,
+          (select coalesce(sum(oi.price_cents), 0) from order_items oi join orders o on o.id = oi.order_id and o.status = 'paid' where oi.event_id = $1 and oi.photographer_id = u.id)::int as cents`;
+  const members = await db.many(
+    `select u.id, u.name, u.email, ph.display_name, t.max_photos, t.upload_until, t.added_at, ${stats}
+       from event_team t join users u on u.id = t.user_id left join photographers ph on ph.user_id = u.id
+      where t.event_id = $1 order by t.added_at`,
+    [ev.id],
+  );
+  const owner = await db.one(
+    `select u.id, u.name, u.email, ph.display_name, ${stats} from users u left join photographers ph on ph.user_id = u.id where u.id = $2`,
+    [ev.id, ev.photographer_id],
+  );
+  const organizerCents = await db.one(
+    `select coalesce(sum(oi.organizer_cents), 0)::int as c from order_items oi join orders o on o.id = oi.order_id and o.status = 'paid' where oi.event_id = $1`,
+    [ev.id],
+  );
+  res.json({ owner, members, organizer_pct: ev.organizer_pct, organizer_cents: organizerCents.c });
+});
+
+const teamLimits = (b) => ({
+  max_photos: Number(b.max_photos) > 0 ? Math.round(Number(b.max_photos)) : null,
+  upload_until: /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(String(b.upload_until || '')) ? `${b.upload_until}:00-03:00` : null,
+});
+
+r.post('/events/:id/team', async (req, res) => {
+  const ev = await ownEvent(req, req.params.id);
+  const email = String(req.body?.email || '').trim().toLowerCase();
+  const u = await db.one(
+    `select u.id, u.role, ph.status from users u left join photographers ph on ph.user_id = u.id where u.email = $1`,
+    [email],
+  );
+  if (!u) fail(404, 'Não achamos uma conta com este e-mail. Peça para a pessoa se cadastrar em "Seja fotógrafo" primeiro.');
+  if (u.id === ev.photographer_id) fail(400, 'Você já é o dono do evento.');
+  if (u.role !== 'admin' && !(u.role === 'photographer' && u.status === 'approved')) fail(400, 'Esta conta ainda não é de fotógrafo aprovado.');
+  const l = teamLimits(req.body || {});
+  await db.query(
+    `insert into event_team (event_id, user_id, max_photos, upload_until) values ($1, $2, $3, $4)
+     on conflict (event_id, user_id) do update set max_photos = excluded.max_photos, upload_until = excluded.upload_until`,
+    [ev.id, u.id, l.max_photos, l.upload_until],
+  );
+  res.json({ ok: true });
+});
+
+r.put('/events/:id/team/:userId', async (req, res) => {
+  const ev = await ownEvent(req, req.params.id);
+  const l = teamLimits(req.body || {});
+  await db.query('update event_team set max_photos = $3, upload_until = $4 where event_id = $1 and user_id = $2', [ev.id, Number(req.params.userId), l.max_photos, l.upload_until]);
+  res.json({ ok: true });
+});
+
+// Sair da equipe nao apaga nada: as fotos continuam no evento e continuam sendo do fotografo.
+r.delete('/events/:id/team/:userId', async (req, res) => {
+  const ev = await ownEvent(req, req.params.id);
+  await db.query('delete from event_team where event_id = $1 and user_id = $2', [ev.id, Number(req.params.userId)]);
+  res.json({ ok: true });
+});
+
+r.put('/events/:id/organizer', async (req, res) => {
+  const ev = await ownEvent(req, req.params.id);
+  const pct = Math.max(0, Math.min(50, Math.round(Number(req.body?.organizer_pct) || 0)));
+  await db.query('update events set organizer_pct = $2 where id = $1', [ev.id, pct]);
+  res.json({ ok: true, organizer_pct: pct });
 });
 
 // Desempenho de um evento: visitas, conversao, vendas nos primeiros 30 dias, horario das vendas,
