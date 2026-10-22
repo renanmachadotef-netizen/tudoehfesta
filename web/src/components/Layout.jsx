@@ -16,14 +16,8 @@ export function Logo({ light = false }) {
   }
   return (
     <Link to="/" className="logo" aria-label="Tudo Eh Festa" style={light ? { color: '#fff' } : undefined}>
-      <span className="logo-mark">
-        <svg width="20" height="20" viewBox="0 0 64 64" aria-hidden="true">
-          <circle cx="32" cy="35" r="17" fill="none" stroke="#ff5a1f" strokeWidth="7" />
-          <rect x="13" y="8" width="16" height="8" rx="3" fill="#ffb21a" />
-          <circle cx="32" cy="35" r="6" fill="#ffb21a" />
-        </svg>
-      </span>
-      <span>Tudo<b>Eh</b>Festa</span>
+      <span>Tudo Eh <i>Festa</i></span>
+      <small>DESDE {site?.since || 2003}</small>
     </Link>
   );
 }
