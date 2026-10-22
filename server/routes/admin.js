@@ -7,7 +7,7 @@ import { db } from '../db.js';
 import { config } from '../config.js';
 import { activity, recentActivity, progress, rate, startedAt } from '../activity.js';
 import { requireAdmin, hashPassword } from '../auth.js';
-import { getSetting, setSetting, normalizeArchive, refreshArchivePricing, archivePricing } from '../pricing.js';
+import { getSetting, setSetting, normalizeArchive, refreshArchivePricing, archivePricing, priceCart } from '../pricing.js';
 import { markOrderPaid, mpEnabled, paymentOptions } from '../payments.js';
 import { dirs, storeAsset, removePhotoFiles, thumbUrl } from '../storage.js';
 import { invalidateFaces } from '../faces.js';
@@ -277,6 +277,122 @@ r.delete('/users/:id', async (req, res) => {
   invalidateFaces();
   activity('exclusao', `Usuário #${u.id} excluído pelo admin`);
   res.json({ ok: true });
+});
+
+// ----- Carrinhos abandonados e pedidos nao pagos -----
+// Itens de recuperacao: pedidos pendentes/cancelados (Pix gerado e nao pago) e carrinhos salvos parados ha mais de
+// 30 min. Um pedido conta como recuperado quando a mesma pessoa pagou depois um pedido com alguma das fotos.
+const ABANDON_MINUTES = Math.max(0, Number(process.env.CART_ABANDON_MINUTES ?? 30));
+const firstName = (n) => String(n || '').trim().split(/\s+/)[0] || '';
+const waPhone = (p) => {
+  const d = String(p || '').replace(/\D/g, '');
+  if (!d) return null;
+  return d.length <= 11 ? `55${d}` : d;
+};
+r.get('/abandoned', async (req, res) => {
+  const base = config.publicUrl;
+  const orders = await db.many(
+    `select o.id, o.code, o.status, o.total_cents, o.created_at, o.recovery_status, o.contacted_at, o.payment_provider,
+            (o.pix_qr is not null) as pix_generated, u.id as user_id, u.name, u.email, u.phone,
+            (select count(*) from order_items oi where oi.order_id = o.id)::int as items,
+            (select string_agg(distinct e.title, ', ') from order_items oi join events e on e.id = oi.event_id where oi.order_id = o.id) as events,
+            exists (select 1 from orders o2 join order_items i2 on i2.order_id = o2.id
+                     where o2.user_id = o.user_id and o2.status = 'paid' and o2.created_at >= o.created_at
+                       and i2.photo_id in (select photo_id from order_items where order_id = o.id)) as recovered
+       from orders o join users u on u.id = o.user_id
+      where o.status in ('pending', 'cancelled')
+      order by o.created_at desc limit 500`,
+  );
+  const carts = await db.many(
+    `select c.user_id, c.photo_ids, c.token, c.updated_at, c.recovery_status, c.contacted_at, u.name, u.email, u.phone
+       from carts c join users u on u.id = c.user_id
+      where cardinality(c.photo_ids) > 0 and c.updated_at < now() - make_interval(mins => $1)
+        and not exists (select 1 from orders o where o.user_id = c.user_id and o.created_at >= c.updated_at)
+      order by c.updated_at desc limit 300`,
+    [ABANDON_MINUTES],
+  );
+  const list = [];
+  for (const o of orders) {
+    const status = o.recovered ? 'recovered' : o.recovery_status;
+    const link = o.status === 'pending' ? `${base}/pedido/${o.code}` : `${base}/carrinho?r=${o.code}`;
+    list.push({
+      kind: 'order', id: o.id, ref: o.code, name: o.name, email: o.email, phone: o.phone, wa: waPhone(o.phone),
+      total_cents: o.total_cents, items: o.items, events: o.events, created_at: o.created_at, updated_at: o.created_at,
+      stage: o.status === 'pending' ? (o.pix_generated ? 'Pix gerado' : 'Aguardando pagamento') : 'Pedido expirado',
+      status, contacted_at: o.contacted_at, link,
+      message: `Oi ${firstName(o.name)}! Aqui é da Tudo Eh Festa. Vi que você separou ${o.items} foto(s)${o.events ? ` de ${o.events}` : ''} e o pagamento não foi concluído. Suas fotos continuam guardadas, é só finalizar por aqui: ${link}`,
+    });
+  }
+  for (const c of carts) {
+    // Fotos do carrinho que a pessoa ainda nao comprou
+    const paid = new Set((await db.many(
+      `select oi.photo_id from order_items oi join orders o on o.id = oi.order_id and o.status = 'paid' where o.user_id = $1`, [c.user_id],
+    )).map((x) => x.photo_id));
+    const ids = c.photo_ids.filter((id) => !paid.has(id));
+    if (!ids.length) continue;
+    const priced = await priceCart(ids, null);
+    if (!priced.items.length) continue;
+    const link = `${base}/carrinho?r=${c.token}`;
+    const events = priced.groups.map((g) => g.title).join(', ');
+    list.push({
+      kind: 'cart', id: c.user_id, ref: 'carrinho', name: c.name, email: c.email, phone: c.phone, wa: waPhone(c.phone),
+      total_cents: priced.total, items: priced.items.length, events, created_at: c.updated_at, updated_at: c.updated_at,
+      stage: 'No carrinho', status: c.recovery_status, contacted_at: c.contacted_at, link,
+      message: `Oi ${firstName(c.name)}! Aqui é da Tudo Eh Festa. Suas ${priced.items.length} foto(s)${events ? ` de ${events}` : ''} ainda estão no carrinho esperando você. É só finalizar por aqui: ${link}`,
+    });
+  }
+  list.sort((a, b) => String(b.updated_at).localeCompare(String(a.updated_at)));
+  const sum = (st) => list.filter((x) => x.status === st).reduce((a, x) => ({ n: a.n + 1, cents: a.cents + x.total_cents, items: a.items + x.items }), { n: 0, cents: 0, items: 0 });
+  res.json({ list, totals: { open: sum('open'), contacted: sum('contacted'), lost: sum('lost'), recovered: sum('recovered') } });
+});
+
+r.put('/abandoned/:kind/:id', async (req, res) => {
+  const status = req.body?.status;
+  if (!['open', 'contacted', 'lost'].includes(status)) fail(400, 'Status inválido.');
+  const table = req.params.kind === 'cart' ? 'carts' : req.params.kind === 'order' ? 'orders' : null;
+  if (!table) fail(400, 'Tipo inválido.');
+  const key = table === 'carts' ? 'user_id' : 'id';
+  await db.query(
+    `update ${table} set recovery_status = $2, contacted_at = case when $2 = 'contacted' then now() else contacted_at end where ${key} = $1`,
+    [Number(req.params.id), status],
+  );
+  res.json({ ok: true });
+});
+
+// ----- Clientes: quem comprou, quanto e quando -----
+const CLIENTS_SQL = `
+  select u.id, u.name, u.email, u.phone, u.created_at,
+         count(distinct o.id) filter (where o.status = 'paid')::int as orders,
+         count(oi.id) filter (where o.status = 'paid')::int as photos,
+         coalesce(sum(oi.price_cents) filter (where o.status = 'paid'), 0)::int as total_cents,
+         min(o.paid_at) as first_purchase, max(o.paid_at) as last_purchase,
+         (select string_agg(t.title, ', ') from (select distinct e.title from order_items i2 join orders o2 on o2.id = i2.order_id and o2.status = 'paid'
+            join events e on e.id = i2.event_id where o2.user_id = u.id limit 4) t) as events,
+         exists (select 1 from user_faces f where f.user_id = u.id) as has_face
+    from users u
+    left join orders o on o.user_id = u.id
+    left join order_items oi on oi.order_id = o.id
+   where u.role = 'customer' and ($1::text is null or u.name ilike '%' || $1 || '%' or u.email ilike '%' || $1 || '%' or u.phone ilike '%' || $1 || '%')
+   group by u.id`;
+const CLIENT_ORDER = { total: 'total_cents desc', orders: 'orders desc', recent: 'last_purchase desc nulls last', name: 'u.name asc' };
+r.get('/clients', async (req, res) => {
+  const q = cleanText(req.query.q, 80);
+  const order = CLIENT_ORDER[req.query.sort] || CLIENT_ORDER.total;
+  const buyers = req.query.all === '1' ? '' : 'having count(distinct o.id) filter (where o.status = \'paid\') > 0';
+  const rows = await db.many(`${CLIENTS_SQL} ${buyers} order by ${order}, u.id desc limit 1000`, [q]);
+  res.json({ clients: rows.map((c) => ({ ...c, wa: waPhone(c.phone) })) });
+});
+r.get('/clients.csv', async (req, res) => {
+  const rows = await db.many(`${CLIENTS_SQL} order by total_cents desc, u.id desc`, [null]);
+  const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  const day = (d) => (d ? new Date(d).toISOString().slice(0, 10) : '');
+  const lines = [['nome', 'email', 'whatsapp', 'pedidos', 'fotos', 'total_reais', 'primeira_compra', 'ultima_compra', 'eventos', 'cadastro'].join(';')];
+  for (const c of rows) {
+    lines.push([c.name, c.email, c.phone, c.orders, c.photos, (c.total_cents / 100).toFixed(2).replace('.', ','), day(c.first_purchase), day(c.last_purchase), c.events, day(c.created_at)].map(esc).join(';'));
+  }
+  res.set('Content-Type', 'text/csv; charset=utf-8');
+  res.set('Content-Disposition', 'attachment; filename="clientes-tudoehfesta.csv"');
+  res.send('\ufeff' + lines.join('\n'));
 });
 
 r.post('/users/:id/reset-password', async (req, res) => {

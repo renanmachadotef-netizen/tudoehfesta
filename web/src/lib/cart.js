@@ -45,6 +45,25 @@ export const cart = {
   subscribe(fn) { subs.add(fn); return () => subs.delete(fn); },
 };
 
+// Quem esta logado tem o carrinho salvo no servidor: segue a pessoa entre aparelhos e permite que a loja
+// lembre quem deixou fotos esperando. Chamado pelo layout quando o usuario muda.
+let syncTimer = null;
+let unsubSync = null;
+export async function attachCartSync(user, api) {
+  if (unsubSync) { unsubSync(); unsubSync = null; }
+  if (!user) return;
+  try {
+    const d = await api('/my/cart');
+    if (d.photos?.length) cart.add(d.photos);
+  } catch { /* sem rede: segue so no aparelho */ }
+  const push = () => api('/my/cart', { method: 'PUT', body: { ids: state.items.map((i) => i.id) } }).catch(() => {});
+  push();
+  unsubSync = cart.subscribe(() => {
+    clearTimeout(syncTimer);
+    syncTimer = setTimeout(push, 1200);
+  });
+}
+
 export function useCart() {
   return useSyncExternalStore(cart.subscribe, cart.get);
 }

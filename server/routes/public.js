@@ -212,6 +212,30 @@ r.get('/photographers/:slug', async (req, res) => {
   res.json({ photographer: pub, events });
 });
 
+// Link de recuperacao: devolve as fotos de um carrinho salvo ou de um pedido nao pago para refazer o carrinho.
+async function restorePhotos(ids) {
+  if (!ids?.length) return [];
+  const rows = await db.many(
+    `select p.id, p.event_id, p.width, p.height, p.key, e.title as event_title, e.slug as event_slug
+       from photos p join events e on e.id = p.event_id and e.status = 'published'
+      where p.id = any($1::int[]) and p.key is not null and not p.hidden`,
+    [ids],
+  );
+  return rows.map((p) => ({ ...photoOut(p), event_title: p.event_title, event_slug: p.event_slug }));
+}
+r.get('/cart/restore/:token', async (req, res) => {
+  const t = String(req.params.token);
+  let ids = [];
+  if (/^[A-Z0-9]{6,16}$/.test(t)) {
+    const o = await db.one(`select id from orders where code = $1 and status in ('pending', 'cancelled')`, [t]);
+    if (o) ids = (await db.many('select photo_id from order_items where order_id = $1', [o.id])).map((r) => r.photo_id);
+  } else {
+    const c = await db.one('select photo_ids from carts where token = $1', [t]);
+    ids = c?.photo_ids || [];
+  }
+  res.json({ photos: await restorePhotos(ids) });
+});
+
 r.post('/cart/price', async (req, res) => {
   res.json(await priceCart(req.body?.photoIds, req.body?.coupon));
 });

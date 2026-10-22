@@ -7,6 +7,7 @@ import { cart, useCart } from '../lib/cart.js';
 import { dateBR, money, plural } from '../lib/format.js';
 import { PhotoGrid } from '../components/Photos.jsx';
 import SelfieSearch from '../components/SelfieSearch.jsx';
+import BuyAll from '../components/BuyAll.jsx';
 import { Loading, Empty, ErrorBox } from '../components/Layout.jsx';
 
 export function PriceSummary({ event }) {
@@ -98,7 +99,6 @@ export default function EventPage() {
   const inThisEvent = items.filter((i) => i.event_slug === event.slug).length;
   const hidden = photos.hidden;
   const shown = tab === 'minhas' ? mine || [] : photos.list;
-  const mineNotInCart = (mine || []).filter((p) => !owned.has(p.id) && !items.some((i) => i.id === p.id));
 
   return (
     <div className="container section-sm stack" style={{ gap: 28 }}>
@@ -141,13 +141,9 @@ export default function EventPage() {
         </div>
         {tab === 'minhas' && mine && (
           mine.length ? (
-            <div className="row between">
-              <span className="small muted">Encontramos {plural(mine.length, 'foto', 'fotos')} com você. Confira e adicione ao carrinho.</span>
-              {mineNotInCart.length > 0 && (
-                <button className="btn btn-accent btn-sm" onClick={() => { cart.add(mineNotInCart.map((p) => ({ ...p, ...eventInfo }))); toast(`${mineNotInCart.length} fotos no carrinho`); }}>
-                  <ShoppingBag size={15} /> Adicionar todas ({mineNotInCart.length})
-                </button>
-              )}
+            <div className="stack" style={{ gap: 10 }}>
+              <span className="small muted">Encontramos {plural(mine.length, 'foto', 'fotos')} com você. Confira abaixo.</span>
+              <BuyAll photos={mine.filter((p) => !owned.has(p.id)).map((p) => ({ ...p, ...eventInfo }))} />
             </div>
           ) : (
             <Empty icon={ScanFace} title="Não encontramos você neste evento">Tente uma selfie mais de frente e com boa luz, ou procure nas fotos.</Empty>

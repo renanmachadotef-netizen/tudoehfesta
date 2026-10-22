@@ -1,14 +1,14 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ScanFace, ShoppingBag, Calendar, ArrowRight } from 'lucide-react';
+import { ScanFace, Calendar, ArrowRight } from 'lucide-react';
 import { api } from '../lib/api.js';
 import { useSite, useTitle } from '../lib/site.jsx';
-import { cart, useCart } from '../lib/cart.js';
 import { dateBR, plural } from '../lib/format.js';
 import { PhotoGrid } from '../components/Photos.jsx';
 import SelfieSearch from '../components/SelfieSearch.jsx';
 import { Empty } from '../components/Layout.jsx';
 import { useOwned } from './Event.jsx';
+import BuyAll from '../components/BuyAll.jsx';
 
 // Convite para cadastrar o rosto e receber fotos novas automaticamente.
 function WatchInvite() {
@@ -23,8 +23,6 @@ function WatchInvite() {
 
 // Resultado da busca facial agrupado por evento.
 export function FaceResults({ result }) {
-  const { items } = useCart();
-  const { toast } = useSite();
   const owned = useOwned();
   if (!result) return null;
   if (!result.photos.length) {
@@ -34,9 +32,7 @@ export function FaceResults({ result }) {
       </Empty>
     );
   }
-  const inCart = new Set(items.map((i) => i.id));
   const groups = result.events.map((ev) => ({ ev, photos: result.photos.filter((p) => p.event_id === ev.id) })).filter((g) => g.photos.length);
-  const allMissing = result.photos.filter((p) => !inCart.has(p.id) && !owned.has(p.id));
   const evById = new Map(result.events.map((e) => [e.id, e]));
   const withInfo = (p) => {
     const ev = evById.get(p.event_id);
@@ -46,14 +42,8 @@ export function FaceResults({ result }) {
   return (
     <div className="stack" style={{ gap: 30 }}>
       <WatchInvite />
-      <div className="row between card-flat" style={{ padding: 16 }}>
-        <span><b>{plural(result.photos.length, 'foto', 'fotos')}</b> em {plural(groups.length, 'evento', 'eventos')}</span>
-        {allMissing.length > 0 && (
-          <button className="btn btn-accent btn-sm" onClick={() => { cart.add(allMissing.map(withInfo)); toast(`${allMissing.length} fotos no carrinho`); }}>
-            <ShoppingBag size={15} /> Adicionar todas ({allMissing.length})
-          </button>
-        )}
-      </div>
+      <span><b>{plural(result.photos.length, 'foto', 'fotos')}</b> com você em {plural(groups.length, 'evento', 'eventos')}</span>
+      <BuyAll photos={result.photos.filter((p) => !owned.has(p.id)).map(withInfo)} />
       {groups.map(({ ev, photos }) => (
         <section key={ev.id} className="stack" style={{ gap: 12 }}>
           <div className="row between">

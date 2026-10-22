@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { ShoppingBag, Trash2, Tag, CreditCard, QrCode, Lock } from 'lucide-react';
 import { api } from '../lib/api.js';
 import { useSite, useTitle } from '../lib/site.jsx';
@@ -22,6 +22,18 @@ export default function Cart() {
   const [busy, setBusy] = useState(false);
   const ids = items.map((i) => i.id);
   const key = ids.join(',') + '|' + coupon;
+  const [params, setParams] = useSearchParams();
+  const { toast } = useSite();
+
+  // Link de recuperacao (?r=...): refaz o carrinho com as fotos que a pessoa tinha separado.
+  useEffect(() => {
+    const r = params.get('r');
+    if (!r) return;
+    api(`/cart/restore/${encodeURIComponent(r)}`).then((d) => {
+      if (d.photos?.length) { cart.add(d.photos); toast(`Suas ${d.photos.length} fotos voltaram para o carrinho`); }
+      setParams({}, { replace: true });
+    }).catch(() => setParams({}, { replace: true }));
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!ids.length) return setPrice(null);

@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import { Router } from 'express';
 import { db } from '../db.js';
 import { requireUser } from '../auth.js';
@@ -18,6 +19,32 @@ export const personalOut = (p, userId) => (p.mine_blurred
   ? { ...photoOut(p), thumb: `/api/my/view/${p.id}/t?k=${p.key}`, preview: `/api/my/view/${p.id}/p?k=${p.key}` }
   : photoOut(p));
 export const MINE_BLURRED = (param) => `exists (select 1 from faces bf where bf.photo_id = p.id and bf.blurred_user_id = ${param}) as mine_blurred`;
+
+// Carrinho salvo: o aparelho manda a lista de fotos; outro aparelho logado recebe de volta.
+const cartPhotos = (ids) => (ids.length ? db.many(
+  `select p.id, p.event_id, p.width, p.height, p.key, e.title as event_title, e.slug as event_slug
+     from photos p join events e on e.id = p.event_id and e.status = 'published'
+    where p.id = any($1::int[]) and p.key is not null and not p.hidden`,
+  [ids],
+) : Promise.resolve([]));
+
+r.get('/my/cart', async (req, res) => {
+  const c = await db.one('select photo_ids from carts where user_id = $1', [req.user.id]);
+  const rows = await cartPhotos(c?.photo_ids || []);
+  res.json({ photos: rows.map((p) => ({ ...photoOut(p), event_title: p.event_title, event_slug: p.event_slug })) });
+});
+
+r.put('/my/cart', async (req, res) => {
+  const ids = [...new Set((req.body?.ids || []).map(Number).filter(Boolean))].slice(0, 2000);
+  await db.query(
+    `insert into carts (user_id, photo_ids, token) values ($1, $2::int[], $3)
+     on conflict (user_id) do update set photo_ids = excluded.photo_ids,
+       updated_at = case when carts.photo_ids = excluded.photo_ids then carts.updated_at else now() end,
+       recovery_status = case when carts.photo_ids = excluded.photo_ids then carts.recovery_status else 'open' end`,
+    [req.user.id, ids, crypto.randomBytes(9).toString('base64url')],
+  );
+  res.json({ ok: true });
+});
 
 r.get('/my/view/:id/:size', async (req, res) => {
   const p = await db.one('select id, event_id, key from photos where id = $1', [Number(req.params.id)]);

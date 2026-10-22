@@ -1,19 +1,18 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ScanFace, ShieldCheck, EyeOff, ShoppingBag, Trash2, Sparkles } from 'lucide-react';
+import { ScanFace, ShieldCheck, EyeOff, Trash2, Sparkles } from 'lucide-react';
 import { api } from '../lib/api.js';
 import { useApi, useSite } from '../lib/site.jsx';
-import { cart, useCart } from '../lib/cart.js';
 import { dateBR, plural } from '../lib/format.js';
 import { Loading, Empty } from '../components/Layout.jsx';
 import { PhotoGrid } from '../components/Photos.jsx';
 import SelfieSearch from '../components/SelfieSearch.jsx';
+import BuyAll from '../components/BuyAll.jsx';
 import { selfieStore } from '../lib/faces.js';
 
 // "Encontradas para voce": fotos em que o sistema achou o cliente (com marca d'agua, prontas para comprar).
 export function MatchedPhotos() {
   const { refresh, toast } = useSite();
-  const { items } = useCart();
   const { data, loading } = useApi('/my/matches');
   const face = useApi('/me/face');
 
@@ -39,8 +38,6 @@ export function MatchedPhotos() {
       </Empty>
     );
   }
-  const inCart = new Set(items.map((i) => i.id));
-  const missing = photos.filter((p) => !inCart.has(p.id));
   const groups = [];
   for (const p of photos) {
     let g = groups.find((x) => x.slug === p.event_slug);
@@ -54,12 +51,8 @@ export function MatchedPhotos() {
         <span className="small">
           {plural(photos.length, 'foto encontrada', 'fotos encontradas')} com você{newCount ? <> · <b>{newCount} novas</b></> : null}. As fotos vêm com marca d’água até a compra.
         </span>
-        {missing.length > 0 && (
-          <button className="btn btn-sm btn-accent" onClick={() => { cart.add(missing); toast(`${missing.length} fotos no carrinho`); }}>
-            <ShoppingBag size={15} /> Adicionar todas ({missing.length})
-          </button>
-        )}
       </div>
+      <BuyAll photos={photos} />
       {groups.map((g) => (
         <section key={g.slug} className="stack" style={{ gap: 10 }}>
           <div><h3>{g.title}</h3><span className="small muted">{dateBR(g.date)} · {plural(g.photos.length, 'foto', 'fotos')}</span></div>

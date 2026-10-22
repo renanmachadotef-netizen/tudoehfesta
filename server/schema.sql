@@ -288,3 +288,16 @@ alter table drive_sources add column if not exists sync_heartbeat timestamptz;
 
 -- v11: retrato da pasta ligada na ultima leitura (pastas e fotos por ano, ja importadas x faltando)
 alter table drive_sources add column if not exists scan jsonb;
+
+-- v12: carrinho salvo de quem esta logado (segue a pessoa entre aparelhos e alimenta a recuperacao) e
+-- acompanhamento de pedidos nao pagos (em aberto / em contato / perdido)
+create table if not exists carts (
+  user_id integer primary key references users(id) on delete cascade,
+  photo_ids integer[] not null default '{}',
+  token text not null unique,
+  updated_at timestamptz not null default now(),
+  recovery_status text not null default 'open',
+  contacted_at timestamptz
+);
+alter table orders add column if not exists recovery_status text not null default 'open';
+alter table orders add column if not exists contacted_at timestamptz;

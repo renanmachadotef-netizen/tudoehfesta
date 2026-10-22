@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { Home, Search, ShoppingBag, User, Images, ScanFace, LogOut, LayoutDashboard, ShieldCheck, Camera, Receipt, Sparkles, EyeOff } from 'lucide-react';
 import { useSite } from '../lib/site.jsx';
-import { useCart } from '../lib/cart.js';
+import { useCart, attachCartSync } from '../lib/cart.js';
 import { api } from '../lib/api.js';
 
 export function Logo({ light = false }) {
@@ -159,6 +159,8 @@ export function Footer() {
 
 export default function Layout() {
   const { pathname } = useLocation();
+  const { user } = useSite();
+  useEffect(() => { attachCartSync(user, api); }, [user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { window.scrollTo(0, 0); }, [pathname]);
   const panel = pathname.startsWith('/painel') || pathname.startsWith('/admin');
   return (
