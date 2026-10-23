@@ -365,3 +365,21 @@ create index if not exists photo_bibs_event_idx on photo_bibs (event_id, bib);
 alter table events add column if not exists accepts_partners boolean not null default false;
 update events set accepts_partners = true where not accepts_partners and id in (select event_id from event_team);
 drop index if exists drive_sources_event_idx;
+
+-- v19: rosto que aprende. Referencias extras do rosto cadastrado vindas das fotos compradas e das marcadas
+-- como "Sou eu" (so o rosto que confere com a selfie). face_learn guarda as marcadas e as que a pessoa tirou.
+alter table user_faces add column if not exists source text not null default 'selfie';
+alter table user_faces add column if not exists photo_id integer references photos(id) on delete cascade;
+alter table users add column if not exists needs_face_learn boolean not null default false;
+create table if not exists face_learn (
+  user_id integer not null references users(id) on delete cascade,
+  photo_id integer not null references photos(id) on delete cascade,
+  blocked boolean not null default false,
+  created_at timestamptz not null default now(),
+  primary key (user_id, photo_id)
+);
+-- Quem ja tinha rosto cadastrado e compras: aprende com elas (so enquanto ainda nao tem referencias extras).
+update users set needs_face_learn = true
+ where not needs_face_learn and id in (select user_id from user_faces)
+   and not exists (select 1 from user_faces uf where uf.user_id = users.id and uf.source <> 'selfie')
+   and exists (select 1 from orders o where o.user_id = users.id and o.status = 'paid');

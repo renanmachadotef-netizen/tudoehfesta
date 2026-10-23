@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ScanFace, ShieldCheck, EyeOff, Trash2, Sparkles } from 'lucide-react';
+import { ScanFace, ShieldCheck, EyeOff, Trash2, Sparkles, X, Brain } from 'lucide-react';
 import { api } from '../lib/api.js';
 import { useApi, useSite } from '../lib/site.jsx';
 import { dateBR, plural } from '../lib/format.js';
@@ -64,6 +64,44 @@ export function MatchedPhotos() {
   );
 }
 
+// Referencias que o rosto aprendeu com as fotos compradas e as marcadas como "Sou eu".
+function LearnedRefs({ data, reload }) {
+  const { toast } = useSite();
+  const refs = data.refs || [];
+  const bought = refs.filter((r) => r.source === 'compra').length;
+  const marked = refs.length - bought;
+  const drop = async (r) => {
+    if (!confirm('Tirar esta foto das referências do seu rosto? Ela não volta a ser usada.')) return;
+    await api(`/me/face/refs/${r.id}`, { method: 'DELETE' });
+    toast('Foto tirada das referências.');
+    reload();
+  };
+  return (
+    <div className="card stack" style={{ gap: 12 }}>
+      <h3 className="row" style={{ gap: 8 }}><Brain size={18} /> Seu rosto aprende com as suas fotos</h3>
+      <p className="small muted">
+        Seu rosto em fotos de outras situações (de perfil, à noite, de óculos, alguns anos atrás) ajuda a achar mais fotos suas. Usamos as fotos que você
+        <b> comprou</b> e as que você marcou como <b>“Sou eu”</b>, mas só o rosto que confere com a sua selfie: foto que você comprou de outra pessoa (filho, amigo) não entra.
+      </p>
+      {refs.length ? (
+        <>
+          <span className="small"><b>{refs.length + 1} referências:</b> sua selfie{bought ? ` + ${plural(bought, 'foto comprada', 'fotos compradas')}` : ''}{marked ? ` + ${plural(marked, 'foto marcada', 'fotos marcadas')}` : ''}.</span>
+          <div className="refine-seeds">
+            {refs.map((r) => (
+              <button key={r.id} type="button" onClick={() => drop(r)} title={`${r.source === 'compra' ? 'Comprada' : 'Marcada como “Sou eu”'} · toque para tirar`} aria-label="Tirar esta foto das referências">
+                <img src={r.thumb} alt="" /><X size={12} />
+              </button>
+            ))}
+          </div>
+          <span className="tiny muted">Usamos até 12 fotos, as mais diferentes entre si. Apagar o cadastro do rosto apaga todas.</span>
+        </>
+      ) : (
+        <span className="small">{data.scanning ? 'Analisando as suas fotos…' : 'Por enquanto só a sua selfie. As fotos que você comprar (ou marcar como “Sou eu” numa busca) entram aqui.'}</span>
+      )}
+    </div>
+  );
+}
+
 // Cadastro do rosto, monitoramento e "borrar minhas imagens".
 export function FacePrivacy() {
   const { toast, refresh } = useSite();
@@ -120,7 +158,7 @@ export function FacePrivacy() {
             subtitle="Tire uma selfie: sempre que você aparecer numa foto nova, ela chega em “Encontradas para você”."
             readyTitle="Selfie pronta para cadastrar"
             actionLabel="Cadastrar meu rosto"
-            consentText="Autorizo guardar um código numérico do meu rosto (não a foto) para encontrar minhas fotos e, se eu pedir, borrar minhas imagens. Posso apagar quando quiser."
+            consentText="Autorizo guardar um código numérico do meu rosto (não a foto) para encontrar minhas fotos e, se eu pedir, borrar minhas imagens. O código também aprende com o meu rosto nas fotos que eu comprar ou marcar como “Sou eu”. Posso apagar quando quiser."
             allowRemember={false}
           />
           {changing && <button className="btn btn-sm btn-ghost" style={{ alignSelf: 'flex-start' }} onClick={() => setChanging(false)}>Cancelar</button>}
@@ -144,6 +182,8 @@ export function FacePrivacy() {
           </div>
         </div>
       )}
+
+      {data.registered && !changing && <LearnedRefs data={data} reload={reload} />}
 
       <div className="card stack">
         <h3 className="row" style={{ gap: 8 }}><EyeOff size={18} /> Borrar minhas imagens</h3>

@@ -42,7 +42,7 @@ export function FaceResults({ result, refine }) {
   return (
     <div className="stack" style={{ gap: 30 }}>
       <WatchInvite />
-      <span><b>{plural(result.photos.length, 'foto', 'fotos')}</b> com você em {plural(groups.length, 'evento', 'eventos')}{refine?.seeds.length ? ` (selfie + ${plural(refine.seeds.length, 'foto marcada', 'fotos marcadas')})` : ''}</span>
+      <span><b>{plural(result.photos.length, 'foto', 'fotos')}</b> com você em {plural(groups.length, 'evento', 'eventos')}{refine?.seeds.length ? ` (selfie + ${plural(refine.seeds.length, 'foto marcada', 'fotos marcadas')})` : ''}{result.learned ? ` · usando também ${plural(result.learned, 'foto', 'fotos')} que seu rosto cadastrado aprendeu` : ''}</span>
       {refine && <RefinePanel refine={refine} />}
       <BuyAll photos={result.photos.filter((p) => !owned.has(p.id)).map(withInfo)} />
       {groups.map(({ ev, photos }) => (

@@ -6,7 +6,7 @@ import { encodeDescriptor } from '../faces.js';
 import { photoOut } from './public.js';
 import { fail, rateLimit } from '../util.js';
 import { activity } from '../activity.js';
-import { privateFile } from '../storage.js';
+import { privateFile, thumbUrl } from '../storage.js';
 import { effectivePrice } from '../pricing.js';
 
 // Rosto do cliente (monitoramento + "borrar minhas imagens") e fotos encontradas para ele.
@@ -60,12 +60,34 @@ r.get('/my/view/:id/:size', async (req, res) => {
 r.get('/me/face', async (req, res) => {
   const u = await db.one(
     `select u.face_consent_at, u.blur_me, u.needs_face_scan,
-            (select count(*) from user_faces f where f.user_id = u.id)::int as faces,
+            (select count(*) from user_faces f where f.user_id = u.id and f.source = 'selfie')::int as faces, u.needs_face_learn,
             (select count(*) from faces f where f.blurred_user_id = u.id)::int as blurred
        from users u where u.id = $1`,
     [req.user.id],
   );
-  res.json({ registered: u.faces > 0, faces: u.faces, consent_at: u.face_consent_at, blur_me: u.blur_me, scanning: u.needs_face_scan, blurred: u.blurred });
+  // Referencias aprendidas (fotos compradas / marcadas como "Sou eu"), com a miniatura da foto.
+  const refs = await db.many(
+    `select uf.id, uf.source, p.id as photo_id, p.event_id, p.key from user_faces uf join photos p on p.id = uf.photo_id
+      where uf.user_id = $1 and uf.source <> 'selfie' and p.key is not null order by uf.id`,
+    [req.user.id],
+  );
+  res.json({
+    registered: u.faces > 0, faces: u.faces, consent_at: u.face_consent_at, blur_me: u.blur_me, scanning: u.needs_face_scan || u.needs_face_learn, blurred: u.blurred,
+    refs: refs.map((r) => ({ id: r.id, source: r.source, thumb: thumbUrl(r.event_id, r.photo_id, r.key) })),
+  });
+});
+
+// Tirar uma referencia aprendida: a foto nao volta a ser usada (e a proxima melhor entra no lugar).
+r.delete('/me/face/refs/:id', async (req, res) => {
+  const row = await db.one(`select photo_id from user_faces where id = $1 and user_id = $2 and source <> 'selfie'`, [Number(req.params.id), req.user.id]);
+  if (!row) fail(404, 'Referência não encontrada.');
+  await db.query(
+    `insert into face_learn (user_id, photo_id, blocked) values ($1, $2, true) on conflict (user_id, photo_id) do update set blocked = true`,
+    [req.user.id, row.photo_id],
+  );
+  await db.query('delete from user_faces where id = $1', [Number(req.params.id)]);
+  await db.query('update users set needs_face_learn = true, needs_face_scan = true where id = $1', [req.user.id]);
+  res.json({ ok: true });
 });
 
 r.post('/me/face', rateLimit('face-register', 10, 60_000), async (req, res) => {
@@ -73,9 +95,10 @@ r.post('/me/face', rateLimit('face-register', 10, 60_000), async (req, res) => {
   const descs = (req.body?.descriptors || []).slice(0, 3).map(encodeDescriptor).filter(Boolean);
   if (!descs.length) fail(400, 'Não conseguimos ler o rosto da selfie. Tente outra, de frente e com boa luz.');
   await db.tx(async (t) => {
+    // Selfie nova: as referencias aprendidas sao refeitas a partir dela (compras e fotos marcadas).
     await t.query('delete from user_faces where user_id = $1', [req.user.id]);
-    for (const d of descs) await t.query('insert into user_faces (user_id, descriptor) values ($1, $2)', [req.user.id, d]);
-    await t.query('update users set face_consent_at = now(), needs_face_scan = true where id = $1', [req.user.id]);
+    for (const d of descs) await t.query(`insert into user_faces (user_id, descriptor, source) values ($1, $2, 'selfie')`, [req.user.id, d]);
+    await t.query('update users set face_consent_at = now(), needs_face_scan = true, needs_face_learn = true where id = $1', [req.user.id]);
   });
   activity('rosto', `Cliente #${req.user.id} cadastrou o rosto para monitoramento`);
   res.json({ ok: true });
@@ -84,7 +107,8 @@ r.post('/me/face', rateLimit('face-register', 10, 60_000), async (req, res) => {
 // Apagar o cadastro do rosto: remove os vetores, desliga o borrao e limpa as sugestoes nao vistas.
 r.delete('/me/face', async (req, res) => {
   await db.query('delete from user_faces where user_id = $1', [req.user.id]);
-  await db.query('update users set face_consent_at = null, blur_me = false, needs_face_scan = true where id = $1', [req.user.id]);
+  await db.query('delete from face_learn where user_id = $1', [req.user.id]);
+  await db.query('update users set face_consent_at = null, blur_me = false, needs_face_scan = true, needs_face_learn = false where id = $1', [req.user.id]);
   res.json({ ok: true });
 });
 

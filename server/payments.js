@@ -130,6 +130,8 @@ export async function markOrderPaid(orderId, method) {
     if (order?.coupon_code) {
       await t.query('update coupons set uses = uses + 1 where upper(code) = upper($1)', [order.coupon_code]);
     }
+    // Fotos compradas ensinam o rosto cadastrado do cliente (so o rosto que confere com a selfie dele).
+    if (order) await t.query('update users set needs_face_learn = true where id = $1 and exists (select 1 from user_faces where user_id = $1)', [order.user_id]);
     return order || null;
   });
 }

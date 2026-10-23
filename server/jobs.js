@@ -6,6 +6,7 @@ import { encodeDescriptor, invalidateFaces } from './faces.js';
 import { syncDueSources } from './drive.js';
 import { pollPendingInfinitePay, checkInfinitePay } from './infinitepay.js';
 import { matchBatch, blurPlanFor } from './matching.js';
+import { learnBatch } from './learn.js';
 import { activity, count, progress } from './activity.js';
 import { readBibs } from './bibs.js';
 
@@ -169,6 +170,7 @@ async function tick() {
     await expirePending();
     const rendered = await renderBatch();
     const indexed = await facesBatch();
+    await learnBatch();
     await matchBatch();
     await autoPublish();
     // Fila vazia: numeros de peito e depois fotos novas no Drive.
