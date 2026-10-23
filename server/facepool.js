@@ -5,11 +5,12 @@ import { Worker } from 'node:worker_threads';
 
 // Reconhecimento facial no servidor em varias threads (ver face-worker.cjs). Cada foto leva alguns segundos
 // de CPU e cada thread usa ~450 MB; com N threads, N fotos sao analisadas ao mesmo tempo.
-// FACE_THREADS fixa o numero; sem ele: nucleos - 1, cabendo na memoria (deixa 1,5 GB para o resto), ate 4.
+// FACE_THREADS fixa o numero; sem ele: metade dos nucleos (o resto fica para o site e a importacao),
+// cabendo na memoria (deixa 1,5 GB para o resto), ate 4.
 const here = path.dirname(fileURLToPath(import.meta.url));
 const memory = process.constrainedMemory?.() || os.totalmem();
 const byMemory = Math.floor((memory - 1.5 * 2 ** 30) / (450 * 2 ** 20));
-export const FACE_THREADS = Math.max(1, Math.min(8, Number(process.env.FACE_THREADS) || Math.min(4, os.cpus().length - 1, byMemory)));
+export const FACE_THREADS = Math.max(1, Math.min(8, Number(process.env.FACE_THREADS) || Math.min(4, Math.floor(os.cpus().length / 2), byMemory)));
 const workers = [];
 const queue = [];
 let seq = 0;

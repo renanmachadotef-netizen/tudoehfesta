@@ -394,3 +394,6 @@ alter table user_faces add column if not exists model text;
 update user_faces set model = 'faceapi' where model is null;
 alter table user_faces alter column model set default 'human';
 alter table users add column if not exists face_update_needed boolean not null default false;
+
+-- v21: fotos aparecem com a previa pronta; se algum cliente pediu borrao, esperam a checagem de rosto.
+create index if not exists users_blur_idx on users (id) where blur_me;

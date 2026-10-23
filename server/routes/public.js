@@ -29,7 +29,8 @@ export const EVENT_JOINS = `
   left join lateral (
     select p.id, p.key from photos p
      where p.key is not null and not p.hidden and p.id = coalesce(e.cover_photo_id,
-       case when e.hide_gallery then null else (select min(p2.id) from photos p2 where p2.event_id = e.id and p2.key is not null and not p2.hidden) end)
+       case when e.hide_gallery then null else (select min(p2.id) from photos p2 where p2.event_id = e.id and p2.key is not null and not p2.hidden
+         and (not p2.needs_faces or not exists (select 1 from users bu where bu.blur_me))) end)
   ) cv on true`;
 
 // Cartao publico: preco que vale hoje (evento recente = preco do evento; antigo ou acervo = tabela do acervo).
@@ -227,6 +228,8 @@ r.get('/events/:slug/photos', async (req, res) => {
   const rows = await db.many(
     `select id, event_id, width, height, key from photos where event_id = $1 and key is not null and not hidden
        and ($4::int is null or extract(hour from taken_at) = $4)
+       -- se algum cliente pediu borrao, a foto espera a checagem de rosto antes de aparecer
+       and (not needs_faces or not exists (select 1 from users bu where bu.blur_me))
       order by ${hour == null ? 'sort_key nulls last, id' : 'taken_at, id'} limit $2 offset $3`,
     [ev.id, limit + 1, offset, hour],
   );

@@ -9,8 +9,8 @@ import { db } from './db.js';
 import { dirs, fileSha, saveOriginal, renderPhoto, removePhotoFiles } from './storage.js';
 import { getSetting } from './pricing.js';
 import { uniqueSlug } from './util.js';
-import { detectFacesOnServer } from './facepool.js';
-import { saveFaces, invalidateFaces } from './faces.js';
+import { invalidateFaces } from './faces.js';
+import { keepForFaces } from './originals.js';
 import { activity, count, progress } from './activity.js';
 
 // Importacao do Google Drive. Dois tipos de pasta ligada:
@@ -27,8 +27,8 @@ import { activity, count, progress } from './activity.js';
 
 const API = 'https://www.googleapis.com/drive/v3';
 export const SYNC_MINUTES = Math.max(2, Number(process.env.DRIVE_SYNC_MINUTES) || 10);
-const FILES_PER_RUN = Math.max(20, Number(process.env.DRIVE_FILES_PER_RUN) || 200);
-const PARALLEL = Math.max(1, Number(process.env.DRIVE_PARALLEL) || 3);
+const FILES_PER_RUN = Math.max(20, Number(process.env.DRIVE_FILES_PER_RUN) || 500);
+const PARALLEL = Math.max(1, Number(process.env.DRIVE_PARALLEL) || 6);
 const MIN_SIDE = 600;
 const IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 
@@ -403,23 +403,16 @@ async function importFile(source, event, file) {
     );
     try {
       if (source.keep_in_drive) {
-        // Original continua so no Drive: gera vitrine e rostos agora, enquanto o arquivo esta baixado.
+        // Original continua so no Drive: gera a vitrine agora (a foto ja fica disponivel) e guarda a copia
+        // baixada para o reconhecimento facial, que roda na fila dele sem segurar a importacao.
         const { size } = await fsp.stat(tmp);
         const rotated = meta.orientation && meta.orientation >= 5;
         const key = await renderPhoto({ eventId: event.id, photoId: photo.id, srcFile: tmp });
-        let faces = [];
-        try {
-          faces = await detectFacesOnServer(tmp);
-        } catch (err) {
-          console.error('[drive] rostos', file.name, err.message);
-        }
-        const year = Number(String(event.event_date).slice(0, 4));
-        await saveFaces(db, { id: photo.id, event_id: event.id, year }, faces);
+        await keepForFaces(photo.id, tmp);
         await db.query(
-          `update photos set original_path = $2, width = $3, height = $4, bytes = $5, sha256 = $6, key = $7, faces_count = $8 where id = $1`,
-          [photo.id, `drive:${file.id}`, rotated ? meta.height : meta.width, rotated ? meta.width : meta.height, size, sha, key, faces.length],
+          `update photos set original_path = $2, width = $3, height = $4, bytes = $5, sha256 = $6, key = $7, needs_faces = true where id = $1`,
+          [photo.id, `drive:${file.id}`, rotated ? meta.height : meta.width, rotated ? meta.width : meta.height, size, sha, key],
         );
-        if (faces.length) invalidateFaces();
       } else {
         const stored = await saveOriginal({ tmpPath: tmp, eventId: event.id, photoId: photo.id, originalName: file.name, sha256: sha });
         const key = await renderPhoto({ eventId: event.id, photoId: photo.id, originalPath: stored.originalPath });

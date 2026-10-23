@@ -1,7 +1,7 @@
 import { db } from './db.js';
 import { renderPhoto, relocateOrphanPreviews, sweepOrphans } from './storage.js';
 import { detectFacesOnServer } from './facepool.js';
-import { withOriginal, isDriveOriginal, copyToServer } from './originals.js';
+import { withOriginal, withFaceSource, cleanFaceCache, isDriveOriginal, copyToServer } from './originals.js';
 import { saveFaces, invalidateFaces, migrateFaceModel } from './faces.js';
 import { FACE_THREADS } from './facepool.js';
 import { syncDueSources } from './drive.js';
@@ -38,31 +38,46 @@ async function renderBatch() {
   return rows.length;
 }
 
-// Rostos: varias fotos ao mesmo tempo (uma por thread do reconhecimento facial).
-async function facesBatch() {
+// Rostos: fila continua. Mantem cada thread do reconhecimento facial ocupada (2 fotos por thread na fila);
+// quando uma foto termina, a proxima entra na hora, sem esperar as outras.
+const facesInFlight = new Set();
+// Uma reposicao de cada vez (duas ao mesmo tempo poderiam pegar a mesma foto duas vezes).
+let facesFillChain = Promise.resolve();
+function facesFill() {
+  facesFillChain = facesFillChain.then(facesFillOnce, facesFillOnce);
+  return facesFillChain;
+}
+async function facesFillOnce() {
+  const room = FACE_THREADS * 2 - facesInFlight.size;
+  if (room <= 0) return;
   const rows = await db.many(
     `select p.id, p.event_id, p.original_path, extract(year from e.event_date)::int as year
        from photos p join events e on e.id = p.event_id
-      where p.needs_faces and p.original_path <> '' order by p.id limit $1`,
-    [FACE_THREADS * 2],
+      where p.needs_faces and p.original_path <> '' and not (p.id = any($2::int[])) order by p.id limit $1`,
+    [room, [...facesInFlight]],
   );
-  await Promise.all(rows.map(async (p) => {
-    let faces = [];
-    try {
-      faces = await withOriginal(p.original_path, (file) => detectFacesOnServer(file));
-    } catch (err) {
-      console.error('[rostos] foto', p.id, err.message);
-      activity('erro', `Rostos da foto #${p.id}: ${err.message}`);
-    }
-    count('scan');
-    count('faces', faces.length);
-    await db.tx(async (t) => {
-      const saved = await saveFaces(t, p, faces);
-      await t.query('update photos set needs_faces = false, faces_count = $2 where id = $1', [p.id, saved]);
-    });
-  }));
-  if (rows.length) invalidateFaces();
-  return rows.length;
+  for (const p of rows) {
+    facesInFlight.add(p.id);
+    facesOne(p)
+      .catch((err) => { console.error('[rostos]', err); activity('erro', `Rostos: ${err.message}`); })
+      .finally(() => { facesInFlight.delete(p.id); facesFill().catch(() => {}); });
+  }
+}
+async function facesOne(p) {
+  let faces = [];
+  try {
+    faces = await withFaceSource(p, (file) => detectFacesOnServer(file));
+  } catch (err) {
+    console.error('[rostos] foto', p.id, err.message);
+    activity('erro', `Rostos da foto #${p.id}: ${err.message}`);
+  }
+  count('scan');
+  count('faces', faces.length);
+  await db.tx(async (t) => {
+    const saved = await saveFaces(t, p, faces);
+    await t.query('update photos set needs_faces = false, faces_count = $2 where id = $1', [p.id, saved]);
+  });
+  invalidateFaces();
 }
 
 // Fotos vendidas cujo original esta so no Drive: copia para o servidor (o cliente nao depende mais do Drive).
@@ -104,6 +119,9 @@ async function expirePending() {
 }
 
 // "O sistema revisa e publica": evento importado do Drive vai ao ar quando todas as fotos estao prontas.
+// Algum cliente pediu "borrar minhas imagens": fotos novas esperam a checagem de rosto antes de aparecer.
+const BLUR_WATCH = 'exists (select 1 from users bu where bu.blur_me)';
+
 async function autoPublish() {
   // Liberacao agendada: rascunho com data marcada vai ao ar sozinho.
   const scheduled = await db.many(
@@ -116,7 +134,7 @@ async function autoPublish() {
     `update events e set status = 'published', published_at = now(), auto_publish = false
       where e.auto_publish and e.status = 'draft'
         and exists (select 1 from photos p where p.event_id = e.id)
-        and not exists (select 1 from photos p where p.event_id = e.id and (p.needs_faces or p.needs_render))
+        and not exists (select 1 from photos p where p.event_id = e.id and (p.needs_render or (p.needs_faces and ${BLUR_WATCH})))
         -- Evento cadastrado: espera a pasta dele terminar. Acervo: libera cada pasta assim que as fotos dela
         -- estao prontas (a pasta geral pode levar horas); so a que esta sendo importada agora espera.
         and (case when e.kind = 'pool'
@@ -168,12 +186,12 @@ async function tick() {
     await pollPendingInfinitePay().catch((err) => console.warn('[infinitepay]', err.message));
     await expirePending();
     const rendered = await renderBatch();
-    const indexed = await facesBatch();
     await learnBatch();
     await matchBatch();
     await autoPublish();
-    // Fila vazia: numeros de peito e depois fotos novas no Drive.
-    if (!rendered && !indexed) {
+    // Previas em dia: numeros de peito e depois fotos novas no Drive (os rostos tem fila propria e nao
+    // seguram a importacao).
+    if (!rendered) {
       const bibs = await bibBatch();
       if (!bibs) await syncDueSources();
     }
@@ -198,6 +216,12 @@ async function sweep() {
   }
 }
 
+// Reconhecimento facial na fila dele (threads separadas): roda junto com a importacao e as previas.
+// O intervalo so serve para pegar fotos novas; a fila em andamento se reabastece sozinha.
+function facesTick() {
+  facesFill().catch((err) => console.error('[rostos]', err));
+}
+
 export function startJobs() {
   // Sincronizacao interrompida por um reinicio (deploy) volta para a fila em vez de ficar presa
   // (se a outra copia do servidor ainda esta trabalhando nela, o sinal de vida esta recente e ela fica).
@@ -213,6 +237,8 @@ export function startJobs() {
     .finally(() => {
       setInterval(tick, 4000).unref();
       setTimeout(tick, 500);
+      setInterval(facesTick, 2000).unref();
+      cleanFaceCache(db).catch((err) => console.error('[rostos] faxina', err.message));
       // Faxina alguns minutos depois de ligar (a outra copia do deploy ja saiu) e depois uma vez por dia.
       setTimeout(sweep, (Number(process.env.SWEEP_DELAY_S) || 180) * 1000);
       setInterval(sweep, 24 * 60 * 60_000).unref();

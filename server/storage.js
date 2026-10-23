@@ -13,6 +13,7 @@ import { watermarkForEvent, watermarkLayers } from './watermark.js';
 //   public/a/...                          avatares, logos, marcas d'agua
 //   tmp/                                  uploads e downloads em andamento
 //   private/<foto>/<cliente>-<key>-p|t.webp  versao da foto sem o borrao do proprio cliente (so ele ve, via /api/my/view)
+//   facecache/<foto>                      original baixado do Drive, guardado so ate o reconhecimento facial ler
 // <key> e aleatorio e muda a cada renderizacao: troca o cache do navegador e impede adivinhar enderecos.
 
 export const dirs = {
@@ -20,6 +21,7 @@ export const dirs = {
   public: path.join(config.dataDir, 'public'),
   tmp: path.join(config.dataDir, 'tmp'),
   private: path.join(config.dataDir, 'private'),
+  facecache: path.join(config.dataDir, 'facecache'),
 };
 for (const d of Object.values(dirs)) fs.mkdirSync(d, { recursive: true });
 
