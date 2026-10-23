@@ -10,7 +10,7 @@ import { dirs, fileSha, saveOriginal, renderPhoto, removePhotoFiles } from './st
 import { getSetting } from './pricing.js';
 import { uniqueSlug } from './util.js';
 import { detectFacesOnServer } from './facepool.js';
-import { encodeDescriptor, invalidateFaces } from './faces.js';
+import { saveFaces, invalidateFaces } from './faces.js';
 import { activity, count, progress } from './activity.js';
 
 // Importacao do Google Drive. Dois tipos de pasta ligada:
@@ -414,10 +414,7 @@ async function importFile(source, event, file) {
           console.error('[drive] rostos', file.name, err.message);
         }
         const year = Number(String(event.event_date).slice(0, 4));
-        for (const f of faces.slice(0, 60)) {
-          const buf = encodeDescriptor(f.d);
-          if (buf) await db.query('insert into faces (photo_id, event_id, year, descriptor, box) values ($1, $2, $3, $4, $5::jsonb)', [photo.id, event.id, year, buf, JSON.stringify(f.box)]);
-        }
+        await saveFaces(db, { id: photo.id, event_id: event.id, year }, faces);
         await db.query(
           `update photos set original_path = $2, width = $3, height = $4, bytes = $5, sha256 = $6, key = $7, faces_count = $8 where id = $1`,
           [photo.id, `drive:${file.id}`, rotated ? meta.height : meta.width, rotated ? meta.width : meta.height, size, sha, key, faces.length],

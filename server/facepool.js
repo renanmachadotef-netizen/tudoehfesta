@@ -1,35 +1,53 @@
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Worker } from 'node:worker_threads';
 
-// Reconhecimento facial no servidor numa thread separada (ver face-worker.cjs).
+// Reconhecimento facial no servidor em varias threads (ver face-worker.cjs). Cada foto leva alguns segundos
+// de CPU e cada thread usa ~450 MB; com N threads, N fotos sao analisadas ao mesmo tempo.
+// FACE_THREADS fixa o numero; sem ele: nucleos - 1, cabendo na memoria (deixa 1,5 GB para o resto), ate 4.
 const here = path.dirname(fileURLToPath(import.meta.url));
-let worker = null;
+const memory = process.constrainedMemory?.() || os.totalmem();
+const byMemory = Math.floor((memory - 1.5 * 2 ** 30) / (450 * 2 ** 20));
+export const FACE_THREADS = Math.max(1, Math.min(8, Number(process.env.FACE_THREADS) || Math.min(4, os.cpus().length - 1, byMemory)));
+const workers = [];
+const queue = [];
 let seq = 0;
-const pending = new Map();
 
-function faceWorker() {
-  if (!worker) {
-    worker = new Worker(path.join(here, 'face-worker.cjs'));
-    worker.on('message', ({ id, faces, error }) => {
-      const p = pending.get(id);
-      pending.delete(id);
-      if (p) error ? p.reject(new Error(error)) : p.resolve(faces);
-    });
-    worker.on('error', (err) => {
-      console.error('[rostos] thread caiu:', err.message);
-      for (const p of pending.values()) p.reject(err);
-      pending.clear();
-      worker = null;
-    });
-  }
-  return worker;
+function spawn() {
+  const w = new Worker(path.join(here, 'face-worker.cjs'));
+  w.jobs = new Map();
+  w.on('message', ({ id, faces, error }) => {
+    const job = w.jobs.get(id);
+    w.jobs.delete(id);
+    if (job) error ? job.reject(new Error(error)) : job.resolve(faces);
+    next();
+  });
+  w.on('error', (err) => {
+    console.error('[rostos] thread caiu:', err.message);
+    for (const job of w.jobs.values()) job.reject(err);
+    workers.splice(workers.indexOf(w), 1);
+    next();
+  });
+  workers.push(w);
+  return w;
 }
 
+function next() {
+  while (queue.length) {
+    let w = workers.find((x) => x.jobs.size === 0);
+    if (!w && workers.length < FACE_THREADS) w = spawn();
+    if (!w) return;
+    const job = queue.shift();
+    w.jobs.set(job.id, job);
+    w.postMessage({ id: job.id, file: job.file });
+  }
+}
+
+// -> [{ d: number[1024], box: {x,y,w,h} (fracoes), score }]
 export function detectFacesOnServer(file) {
   return new Promise((resolve, reject) => {
-    const id = ++seq;
-    pending.set(id, { resolve, reject });
-    faceWorker().postMessage({ id, file });
+    queue.push({ id: ++seq, file, resolve, reject });
+    next();
   });
 }

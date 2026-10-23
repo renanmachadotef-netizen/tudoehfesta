@@ -4,7 +4,6 @@ import { Upload, Trash2, Star, ScanFace, Plus, X, ExternalLink, Copy, Download, 
 import { api, uploadWithProgress } from '../../lib/api.js';
 import { useSite } from '../../lib/site.jsx';
 import { centsToInput, money, dateBR, dateTimeBR } from '../../lib/format.js';
-import { detectFaces, fileToCanvas, loadFaceApi } from '../../lib/faces.js';
 import { Loading, ErrorBox } from '../../components/Layout.jsx';
 import { EVENT_STATUS } from './EventsList.jsx';
 import EventDrive from './EventDrive.jsx';
@@ -155,7 +154,6 @@ function EventForm({ initial, onSaved }) {
 
 // Fila de upload: analisa rostos no navegador (uma foto por vez, usa a GPU) e envia ate 3 em paralelo.
 function Uploader({ eventId, onUploaded }) {
-  const [useFaces, setUseFaces] = useState(true);
   const [drag, setDrag] = useState(false);
   const [st, setSt] = useState(null);
   const cancel = useRef(false);
@@ -176,31 +174,13 @@ function Uploader({ eventId, onUploaded }) {
     const s = { total: files.length, done: 0, failed: 0, dup: 0, faces: 0, status: '', errors: [], finished: false };
     const push = (patch) => setSt((cur) => ({ ...(cur || s), ...patch(cur || s) }));
     setSt(s);
-    let browserFaces = useFaces;
-    if (useFaces) {
-      try {
-        await loadFaceApi((m) => push(() => ({ status: m })));
-      } catch {
-        browserFaces = false;
-        push(() => ({ status: 'Reconhecimento facial indisponível neste navegador: o servidor vai procurar os rostos depois do envio.' }));
-      }
-    }
+    // Os rostos sao procurados no servidor depois do envio (mesma qualidade para todas as fotos).
     const inflight = new Set();
     for (const file of files) {
       if (cancel.current) break;
-      let faces = [];
-      let facesDone = false;
-      if (browserFaces) {
-        push(() => ({ status: `Analisando rostos: ${file.name}` }));
-        try {
-          faces = await detectFaces(await fileToCanvas(file, 1400));
-          facesDone = true;
-        } catch { /* falhou neste arquivo: o servidor tenta depois */ }
-      }
+      push(() => ({ status: `Enviando: ${file.name}` }));
       while (inflight.size >= 3) await Promise.race(inflight);
       const form = new FormData();
-      form.append('faces', JSON.stringify(faces.map(({ d, box }) => ({ d, box }))));
-      if (facesDone) form.append('faces_done', '1');
       form.append('name', file.name);
       form.append('sort_key', file.name);
       form.append('file', file);
@@ -225,7 +205,7 @@ function Uploader({ eventId, onUploaded }) {
   return (
     <div className="card stack">
       <div className="row between"><h3>Enviar fotos</h3>
-        <label className="check" style={{ alignItems: 'center' }}><input type="checkbox" checked={useFaces} disabled={running} onChange={(e) => setUseFaces(e.target.checked)} /> <ScanFace size={16} /> Rostos no navegador (mais rápido)</label>
+        <span className="small muted row" style={{ gap: 6 }}><ScanFace size={16} /> Os rostos são procurados no servidor depois do envio</span>
       </div>
       {!running && (
         <div

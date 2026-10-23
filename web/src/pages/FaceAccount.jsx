@@ -24,8 +24,10 @@ export function MatchedPhotos() {
   if (loading || face.loading) return <Loading />;
   if (!face.data?.registered) {
     return (
-      <Empty icon={ScanFace} title="Cadastre seu rosto para receber suas fotos">
-        <span>Sempre que você aparecer numa foto nova, ela chega aqui automaticamente.</span>
+      <Empty icon={ScanFace} title={face.data?.update_needed ? 'Tire uma selfie nova para continuar' : 'Cadastre seu rosto para receber suas fotos'}>
+        <span>{face.data?.update_needed
+          ? 'Atualizamos o reconhecimento facial do site para achar mais fotos suas, inclusive em fotos de grupo. O cadastro antigo não serve no sistema novo: tire uma selfie nova e voltamos a avisar quando você aparecer.'
+          : 'Sempre que você aparecer numa foto nova, ela chega aqui automaticamente.'}</span>
         <Link to="/meu-rosto" className="btn btn-accent">Cadastrar meu rosto</Link>
       </Empty>
     );
@@ -149,6 +151,12 @@ export function FacePrivacy() {
 
   return (
     <div className="stack" style={{ gap: 20, maxWidth: 820 }}>
+      {data.update_needed && !data.registered && (
+        <div className="alert alert-warn">
+          <b>Atualizamos o reconhecimento facial do site</b> para achar mais fotos suas, inclusive em fotos de grupo e de longe.
+          O cadastro antigo do seu rosto não serve no sistema novo: tire uma selfie nova abaixo.{data.blur_me ? ' Enquanto isso, o borrão das suas imagens continua valendo nas fotos que já estão no site.' : ''}
+        </div>
+      )}
       {!data.registered || changing ? (
         <>
           <SelfieSearch

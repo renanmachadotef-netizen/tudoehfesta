@@ -1,5 +1,5 @@
-import { db, toBuffer } from './db.js';
-import { DIM } from './faces.js';
+import { db } from './db.js';
+import { FACE_MODEL, DEFAULT_THRESHOLD, STRICT_THRESHOLD, decodeDescriptor, dist2 } from './faces.js';
 import { activity } from './activity.js';
 
 // "Rosto que aprende": para quem cadastrou o rosto, as fotos que a pessoa comprou e as que ela marcou como
@@ -10,23 +10,15 @@ import { activity } from './activity.js';
 //   - Rosto pequeno na foto nao entra (pouca informacao).
 //   - No maximo MAX_LEARNED, escolhidas para serem as mais variadas entre si.
 
-const LEARN = 0.45; // busca usa 0.5
-const SAME_PERSON = 0.5;
+const LEARN = STRICT_THRESHOLD; // mais rigoroso que a busca
+const SAME_PERSON = DEFAULT_THRESHOLD;
 const MAX_LEARNED = 12;
 const MIN_FACE = 0.05; // largura minima do rosto (fracao da largura da foto)
 
-const vec = (b) => {
-  const buf = toBuffer(b);
-  return Float32Array.from(new Float32Array(buf.buffer, buf.byteOffset, DIM));
-};
-const dist2 = (a, b) => {
-  let s = 0;
-  for (let k = 0; k < DIM; k++) { const d = a[k] - b[k]; s += d * d; }
-  return s;
-};
+const vec = decodeDescriptor;
 
 export async function learnUser(userId) {
-  const selfies = (await db.many(`select descriptor from user_faces where user_id = $1 and source = 'selfie'`, [userId])).map((r) => vec(r.descriptor));
+  const selfies = (await db.many(`select descriptor from user_faces where user_id = $1 and source = 'selfie' and model = $2`, [userId, FACE_MODEL])).map((r) => vec(r.descriptor));
   const before = (await db.many(`select photo_id from user_faces where user_id = $1 and source <> 'selfie' order by photo_id`, [userId])).map((r) => r.photo_id);
   let chosen = [];
   if (selfies.length) {
@@ -43,8 +35,8 @@ export async function learnUser(userId) {
     const sourceOf = new Map(cands.map((c) => [c.photo_id, c.source]));
     const faces = cands.length ? await db.many(
       `select f.photo_id, f.descriptor, f.box from faces f
-        where f.photo_id = any($1::int[]) and (f.blurred_user_id is null or f.blurred_user_id = $2)`,
-      [cands.map((c) => c.photo_id), userId],
+        where f.photo_id = any($1::int[]) and (f.blurred_user_id is null or f.blurred_user_id = $2) and f.model = $3`,
+      [cands.map((c) => c.photo_id), userId, FACE_MODEL],
     ) : [];
     const byPhoto = new Map();
     for (const f of faces) {
@@ -117,13 +109,13 @@ export async function rememberMarks(userId, photoIds) {
     `insert into face_learn (user_id, photo_id) select $1, unnest($2::int[]) on conflict (user_id, photo_id) do nothing`,
     [userId, photoIds],
   );
-  await db.query(`update users set needs_face_learn = true where id = $1 and exists (select 1 from user_faces where user_id = $1)`, [userId]);
+  await db.query(`update users set needs_face_learn = true where id = $1 and exists (select 1 from user_faces where user_id = $1 and model = $2)`, [userId, FACE_MODEL]);
 }
 
 // Busca com selfie de quem esta logado: se a selfie for da propria pessoa (confere com o rosto cadastrado),
 // devolve as referencias aprendidas para entrarem na busca. Selfie de outra pessoa (amigo) nao mistura nada.
 export async function learnedFor(userId, descriptors) {
-  const rows = await db.many('select descriptor, source from user_faces where user_id = $1', [userId]);
+  const rows = await db.many('select descriptor, source from user_faces where user_id = $1 and model = $2', [userId, FACE_MODEL]);
   const selfies = rows.filter((r) => r.source === 'selfie').map((r) => vec(r.descriptor));
   const learned = rows.filter((r) => r.source !== 'selfie').map((r) => vec(r.descriptor));
   if (!selfies.length || !learned.length) return [];

@@ -383,3 +383,14 @@ update users set needs_face_learn = true
  where not needs_face_learn and id in (select user_id from user_faces)
    and not exists (select 1 from user_faces uf where uf.user_id = users.id and uf.source <> 'selfie')
    and exists (select 1 from orders o where o.user_id = users.id and o.status = 'paid');
+
+-- v20: reconhecimento facial Human (codigo de 1024 numeros). Cada rosto guarda o modelo que o gerou;
+-- os rostos antigos (face-api) ficam ate a foto ser refeita e nao entram na busca.
+alter table faces add column if not exists model text;
+update faces set model = 'faceapi' where model is null;
+alter table faces alter column model set default 'human';
+create index if not exists faces_model_idx on faces (model, id);
+alter table user_faces add column if not exists model text;
+update user_faces set model = 'faceapi' where model is null;
+alter table user_faces alter column model set default 'human';
+alter table users add column if not exists face_update_needed boolean not null default false;

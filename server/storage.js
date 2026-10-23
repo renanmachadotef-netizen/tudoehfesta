@@ -169,11 +169,15 @@ export async function renderPhoto({ eventId, photoId, originalPath, oldKey, srcF
   await renderVariant(src, 1400, 78, wm, path.join(dirs.public, 'p', String(eventId), fileName(photoId, key)), blurBoxes, protect);
   await renderVariant(src, 480, 70, wm, path.join(dirs.public, 't', String(eventId), fileName(photoId, key)), blurBoxes);
   if (oldKey !== key) await removeVariants(eventId, photoId, oldKey);
-  await fsp.rm(path.join(dirs.private, String(photoId)), { recursive: true, force: true });
   for (const v of privateFor) {
     await renderVariant(src, 1400, 78, wm, privateFile(photoId, v.userId, key, 'p'), v.boxes, protect);
     await renderVariant(src, 480, 70, wm, privateFile(photoId, v.userId, key, 't'), v.boxes);
   }
+  // Versoes particulares antigas saem depois de gravar as novas (apagar a pasta e recriar em seguida falha
+  // as vezes enquanto a exclusao ainda esta pendente no sistema de arquivos).
+  const privDir = path.join(dirs.private, String(photoId));
+  if (!privateFor.length) await fsp.rm(privDir, { recursive: true, force: true });
+  else for (const f of await fsp.readdir(privDir).catch(() => [])) if (!f.includes(`-${key}-`)) await fsp.unlink(path.join(privDir, f)).catch(() => {});
   return key;
 }
 

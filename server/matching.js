@@ -1,5 +1,5 @@
-import { db, toBuffer } from './db.js';
-import { DIM, invalidateFaces } from './faces.js';
+import { db } from './db.js';
+import { FACE_MODEL, DEFAULT_THRESHOLD, STRICT_THRESHOLD, decodeDescriptor, dist2, invalidateFaces } from './faces.js';
 import { getSetting, setSetting } from './pricing.js';
 import { activity, count } from './activity.js';
 
@@ -10,28 +10,18 @@ import { activity, count } from './activity.js';
 //     selfie das outras pessoas e a vitrine e refeita borrada.
 // Limiar de borrar mais rigido que o de encontrar: so borra quando a semelhanca e bem alta.
 
-const MATCH = 0.5;
-const BLUR = 0.47;
+const MATCH = DEFAULT_THRESHOLD;
+const BLUR = STRICT_THRESHOLD;
 const BATCH = 3000;
 
-const vec = (b) => {
-  const buf = toBuffer(b);
-  return new Float32Array(buf.buffer, buf.byteOffset, DIM);
-};
-function dist(a, b) {
-  let s = 0;
-  for (let i = 0; i < DIM; i++) {
-    const d = a[i] - b[i];
-    s += d * d;
-  }
-  return Math.sqrt(s);
-}
+const vec = decodeDescriptor;
+const dist = (a, b) => Math.sqrt(dist2(a, b));
 
 async function loadProfiles(userId = null) {
   const rows = await db.many(
     `select uf.user_id, uf.descriptor, u.blur_me from user_faces uf join users u on u.id = uf.user_id
-      where ($1::int is null or uf.user_id = $1)`,
-    [userId],
+      where ($1::int is null or uf.user_id = $1) and uf.model = $2`,
+    [userId, FACE_MODEL],
   );
   const byUser = new Map();
   for (const r of rows) {
@@ -81,7 +71,11 @@ async function compare(faces, profiles) {
 
 // Varredura completa de um cliente (cadastrou/trocou o rosto, ligou/desligou o borrao, apagou o cadastro).
 async function scanUser(userId) {
-  const undone = await db.many('update faces set blurred_user_id = null where blurred_user_id = $1 returning photo_id', [userId]);
+  const blurOn = (await db.one('select blur_me from users where id = $1', [userId]))?.blur_me;
+  const undone = await db.many(
+    `update faces set blurred_user_id = null where blurred_user_id = $1 ${blurOn ? `and model = '${FACE_MODEL}'` : ''} returning photo_id`,
+    [userId],
+  );
   if (undone.length) {
     await db.query('update photos set needs_render = true where id = any($1::int[])', [[...new Set(undone.map((r) => r.photo_id))]]);
     invalidateFaces();
@@ -92,7 +86,7 @@ async function scanUser(userId) {
   if (profiles.length) {
     let cursor = 0;
     for (;;) {
-      const faces = await db.many('select id, photo_id, descriptor, blurred_user_id from faces where id > $1 order by id limit $2', [cursor, BATCH]);
+      const faces = await db.many(`select id, photo_id, descriptor, blurred_user_id from faces where id > $1 and model = '${FACE_MODEL}' order by id limit $2`, [cursor, BATCH]);
       if (!faces.length) break;
       await compare(faces, profiles);
       cursor = faces[faces.length - 1].id;
@@ -109,7 +103,7 @@ export async function matchBatch() {
     return 1;
   }
   const cursor = Number(await getSetting('match_cursor', 0)) || 0;
-  const faces = await db.many('select id, photo_id, descriptor, blurred_user_id from faces where id > $1 order by id limit $2', [cursor, BATCH]);
+  const faces = await db.many(`select id, photo_id, descriptor, blurred_user_id from faces where id > $1 and model = '${FACE_MODEL}' order by id limit $2`, [cursor, BATCH]);
   if (!faces.length) return 0;
   const profiles = await loadProfiles();
   if (profiles.length) await compare(faces, profiles);

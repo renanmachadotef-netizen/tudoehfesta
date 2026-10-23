@@ -17,7 +17,7 @@
   "dependencies": {
     "@tensorflow/tfjs": "4.22.0",
     "@tensorflow/tfjs-backend-wasm": "4.22.0",
-    "@vladmandic/face-api": "^1.7.15",
+    "@vladmandic/human": "3.3.6",
     "express": "^5.2.1",
     "fflate": "^0.8.3",
     "multer": "^2.0.2",

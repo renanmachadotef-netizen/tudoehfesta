@@ -2,7 +2,8 @@ import { db } from './db.js';
 import { renderPhoto, relocateOrphanPreviews, sweepOrphans } from './storage.js';
 import { detectFacesOnServer } from './facepool.js';
 import { withOriginal, isDriveOriginal, copyToServer } from './originals.js';
-import { encodeDescriptor, invalidateFaces } from './faces.js';
+import { saveFaces, invalidateFaces, migrateFaceModel } from './faces.js';
+import { FACE_THREADS } from './facepool.js';
 import { syncDueSources } from './drive.js';
 import { pollPendingInfinitePay, checkInfinitePay } from './infinitepay.js';
 import { matchBatch, blurPlanFor } from './matching.js';
@@ -37,13 +38,15 @@ async function renderBatch() {
   return rows.length;
 }
 
+// Rostos: varias fotos ao mesmo tempo (uma por thread do reconhecimento facial).
 async function facesBatch() {
   const rows = await db.many(
     `select p.id, p.event_id, p.original_path, extract(year from e.event_date)::int as year
        from photos p join events e on e.id = p.event_id
-      where p.needs_faces and p.original_path <> '' order by p.id limit 4`,
+      where p.needs_faces and p.original_path <> '' order by p.id limit $1`,
+    [FACE_THREADS * 2],
   );
-  for (const p of rows) {
+  await Promise.all(rows.map(async (p) => {
     let faces = [];
     try {
       faces = await withOriginal(p.original_path, (file) => detectFacesOnServer(file));
@@ -52,16 +55,12 @@ async function facesBatch() {
       activity('erro', `Rostos da foto #${p.id}: ${err.message}`);
     }
     count('scan');
-    count('faces', Math.min(faces.length, 60));
+    count('faces', faces.length);
     await db.tx(async (t) => {
-      await t.query('delete from faces where photo_id = $1', [p.id]);
-      for (const f of faces.slice(0, 60)) {
-        const buf = encodeDescriptor(f.d);
-        if (buf) await t.query('insert into faces (photo_id, event_id, year, descriptor, box) values ($1, $2, $3, $4, $5::jsonb)', [p.id, p.event_id, p.year, buf, JSON.stringify(f.box)]);
-      }
-      await t.query('update photos set needs_faces = false, faces_count = $2 where id = $1', [p.id, faces.length]);
+      const saved = await saveFaces(t, p, faces);
+      await t.query('update photos set needs_faces = false, faces_count = $2 where id = $1', [p.id, saved]);
     });
-  }
+  }));
   if (rows.length) invalidateFaces();
   return rows.length;
 }
@@ -204,8 +203,11 @@ export function startJobs() {
   // (se a outra copia do servidor ainda esta trabalhando nela, o sinal de vida esta recente e ela fica).
   db.query(`update drive_sources set last_status = 'na fila'
              where last_status = 'sincronizando' and (sync_heartbeat is null or sync_heartbeat < now() - interval '5 minutes')`).catch(() => {});
-  // Antes da fila: aproveita previas que ficaram na pasta de um evento juntado a outro.
-  relocateOrphanPreviews(db)
+  // Antes da fila: troca de modelo do reconhecimento facial (uma vez) e previas que ficaram na pasta de um
+  // evento juntado a outro.
+  migrateFaceModel()
+    .catch((err) => console.error('[rostos] migracao', err.message))
+    .then(() => relocateOrphanPreviews(db))
     .then((n) => { if (n) activity('drive', `${n} prévias reaproveitadas (mudaram de pasta, sem baixar de novo)`); })
     .catch((err) => console.error('[previas]', err.message))
     .finally(() => {

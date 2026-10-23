@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Camera, ImagePlus, ScanFace, ShieldCheck, X, SwitchCamera, UserPlus, Trash2, Search } from 'lucide-react';
-import { fileToCanvas, loadFaceApi, selfieDescriptor, selfieStore } from '../lib/faces.js';
+import { fileToCanvas, loadFaceEngine, selfieDescriptor, selfieStore } from '../lib/faces.js';
 
 // Captura a selfie (camera ou arquivo), gera o vetor do rosto no aparelho e entrega ao pai.
 // onSelfie({ descriptor, preview }) e chamado quando ha selfie pronta. Por padrao a selfie vale so para esta busca
@@ -33,7 +33,7 @@ export default function SelfieSearch({ onSelfie, title = 'Encontre suas fotos co
 
   // Pre-carrega o modelo assim que a pessoa marca o consentimento.
   useEffect(() => {
-    if (consent) loadFaceApi().catch(() => {});
+    if (consent) loadFaceEngine().catch(() => {});
   }, [consent]);
 
   function stopCamera() {
@@ -45,7 +45,7 @@ export default function SelfieSearch({ onSelfie, title = 'Encontre suas fotos co
     setMode('working');
     setError('');
     try {
-      await loadFaceApi(setStatus);
+      await loadFaceEngine(setStatus);
       setStatus('Procurando seu rosto…');
       const res = await selfieDescriptor(input);
       if (!res) {

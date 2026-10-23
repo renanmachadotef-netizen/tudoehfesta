@@ -4,7 +4,7 @@ import { db } from '../db.js';
 import { checkPassword } from '../auth.js';
 import { config } from '../config.js';
 import { getSetting, priceCart, effectivePrice } from '../pricing.js';
-import { searchFaces, seedDescriptors, DIM, DEFAULT_THRESHOLD } from '../faces.js';
+import { searchFaces, seedDescriptors, DIM, DEFAULT_THRESHOLD, THRESHOLD_RANGE } from '../faces.js';
 import { learnedFor, rememberMarks } from '../learn.js';
 import { previewUrl, thumbUrl } from '../storage.js';
 import { paymentOptions } from '../payments.js';
@@ -260,7 +260,7 @@ r.post('/faces/search', rateLimit('faces', 40, 60_000), async (req, res) => {
     if (ev.visibility === 'password' && !(await unlocked(req, ev.id))) fail(403, 'Digite a senha do evento primeiro.');
     key = `event:${ev.id}`;
   }
-  const threshold = Math.min(Math.max(Number(req.body.threshold) || DEFAULT_THRESHOLD, 0.35), 0.6);
+  const threshold = Math.min(Math.max(Number(req.body.threshold) || DEFAULT_THRESHOLD, THRESHOLD_RANGE[0]), THRESHOLD_RANGE[1]);
   // Fotos marcadas como "sou eu" entram como referencias extras (ate 12).
   const seedIds = [...new Set((Array.isArray(req.body.seeds) ? req.body.seeds : []).map(Number).filter((n) => Number.isInteger(n) && n > 0))].slice(0, 12);
   const seeds = await seedDescriptors(seedIds, descriptors, threshold);

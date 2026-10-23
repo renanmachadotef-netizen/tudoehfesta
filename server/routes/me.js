@@ -60,7 +60,7 @@ r.get('/my/view/:id/:size', async (req, res) => {
 r.get('/me/face', async (req, res) => {
   const u = await db.one(
     `select u.face_consent_at, u.blur_me, u.needs_face_scan,
-            (select count(*) from user_faces f where f.user_id = u.id and f.source = 'selfie')::int as faces, u.needs_face_learn,
+            (select count(*) from user_faces f where f.user_id = u.id and f.source = 'selfie')::int as faces, u.needs_face_learn, u.face_update_needed,
             (select count(*) from faces f where f.blurred_user_id = u.id)::int as blurred
        from users u where u.id = $1`,
     [req.user.id],
@@ -72,7 +72,7 @@ r.get('/me/face', async (req, res) => {
     [req.user.id],
   );
   res.json({
-    registered: u.faces > 0, faces: u.faces, consent_at: u.face_consent_at, blur_me: u.blur_me, scanning: u.needs_face_scan || u.needs_face_learn, blurred: u.blurred,
+    registered: u.faces > 0, faces: u.faces, update_needed: u.face_update_needed && !u.faces, consent_at: u.face_consent_at, blur_me: u.blur_me, scanning: u.needs_face_scan || u.needs_face_learn, blurred: u.blurred,
     refs: refs.map((r) => ({ id: r.id, source: r.source, thumb: thumbUrl(r.event_id, r.photo_id, r.key) })),
   });
 });
@@ -98,7 +98,7 @@ r.post('/me/face', rateLimit('face-register', 10, 60_000), async (req, res) => {
     // Selfie nova: as referencias aprendidas sao refeitas a partir dela (compras e fotos marcadas).
     await t.query('delete from user_faces where user_id = $1', [req.user.id]);
     for (const d of descs) await t.query(`insert into user_faces (user_id, descriptor, source) values ($1, $2, 'selfie')`, [req.user.id, d]);
-    await t.query('update users set face_consent_at = now(), needs_face_scan = true, needs_face_learn = true where id = $1', [req.user.id]);
+    await t.query('update users set face_consent_at = now(), needs_face_scan = true, needs_face_learn = true, face_update_needed = false where id = $1', [req.user.id]);
   });
   activity('rosto', `Cliente #${req.user.id} cadastrou o rosto para monitoramento`);
   res.json({ ok: true });
@@ -108,7 +108,7 @@ r.post('/me/face', rateLimit('face-register', 10, 60_000), async (req, res) => {
 r.delete('/me/face', async (req, res) => {
   await db.query('delete from user_faces where user_id = $1', [req.user.id]);
   await db.query('delete from face_learn where user_id = $1', [req.user.id]);
-  await db.query('update users set face_consent_at = null, blur_me = false, needs_face_scan = true, needs_face_learn = false where id = $1', [req.user.id]);
+  await db.query('update users set face_consent_at = null, blur_me = false, needs_face_scan = true, needs_face_learn = false, face_update_needed = false where id = $1', [req.user.id]);
   res.json({ ok: true });
 });
 

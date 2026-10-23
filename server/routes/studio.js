@@ -10,7 +10,7 @@ import { dirs, saveOriginal, renderPhoto, photoSha, removePhotoFiles, storeAsset
 import { normalizeWatermark, watermarkPreview, clearWatermarkCache } from '../watermark.js';
 import { driveInfo, parseFolderId, folderName, previewSource, ignoreWords } from '../drive.js';
 import { queueStatus } from '../jobs.js';
-import { encodeDescriptor, invalidateFaces } from '../faces.js';
+import { saveFaces, encodeDescriptor, invalidateFaces } from '../faces.js';
 import { getSetting, setSetting, effectivePrice } from '../pricing.js';
 import { EVENT_CARD, EVENT_JOINS, eventCard, photoOut } from './public.js';
 import { fail, cleanText, toCents, uniqueSlug, photographerBalance, myCents, isMine } from '../util.js';
@@ -322,22 +322,15 @@ r.post('/events/:id/photos', upload.single('file'), async (req, res) => {
       throw err;
     }
     const year = Number(String(ev.event_date).slice(0, 4));
-    let saved = 0;
-    for (const f of browserFaces ? faces.slice(0, 60) : []) {
-      const buf = encodeDescriptor(f.d);
-      if (!buf) continue;
-      await db.query('insert into faces (photo_id, event_id, year, descriptor, box) values ($1, $2, $3, $4, $5::jsonb)', [
-        photo.id, ev.id, year, buf, JSON.stringify(f.box || null),
-      ]);
-      saved++;
-    }
+    const ready = browserFaces && faces.every((f) => encodeDescriptor(f.d));
+    const saved = ready ? await saveFaces(db, { id: photo.id, event_id: ev.id, year }, faces) : 0;
     await db.query(
       `update photos set original_path = $2, width = $3, height = $4, bytes = $5, sha256 = $6, faces_count = $7, key = $8,
          needs_faces = $9 where id = $1`,
-      [photo.id, stored.originalPath, stored.width, stored.height, stored.bytes, stored.sha256, saved, key, !browserFaces],
+      [photo.id, stored.originalPath, stored.width, stored.height, stored.bytes, stored.sha256, saved, key, !ready],
     );
     if (saved) invalidateFaces();
-    res.json({ photo: { ...photoOut({ id: photo.id, event_id: ev.id, width: stored.width, height: stored.height, key }), faces: saved, pending: !browserFaces } });
+    res.json({ photo: { ...photoOut({ id: photo.id, event_id: ev.id, width: stored.width, height: stored.height, key }), faces: saved, pending: !ready } });
   } catch (err) {
     await fsp.unlink(tmp).catch(() => {});
     throw err;
