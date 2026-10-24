@@ -207,7 +207,7 @@ export default function Live() {
 
       <div className="kpis">
         <div className="kpi"><span><Images size={14} style={{ verticalAlign: -2 }} /> Fotos no site</span><b>{t.photos.toLocaleString('pt-BR')}</b><small>+{t.photos_24h.toLocaleString('pt-BR')} em 24 h · {t.pool_groups} pastas no acervo · {t.events} eventos</small></div>
-        <div className="kpi"><span><ScanFace size={14} style={{ verticalAlign: -2 }} /> Rostos indexados</span><b>{t.faces.toLocaleString('pt-BR')}</b></div>
+        <div className="kpi"><span><ScanFace size={14} style={{ verticalAlign: -2 }} /> Rostos indexados</span><b>{t.faces.toLocaleString('pt-BR')}</b><small>{t.old_faces ? `no reconhecimento atual · ${t.old_faces.toLocaleString('pt-BR')} do modelo antigo ainda serão refeitos` : 'no reconhecimento atual'}</small></div>
         <div className="kpi"><span><Users size={14} style={{ verticalAlign: -2 }} /> Clientes</span><b>{t.customers}</b><small>{t.face_users} com rosto cadastrado · {t.blur_users} pediram para borrar</small></div>
         <div className="kpi accent"><span><ShoppingBag size={14} style={{ verticalAlign: -2 }} /> Vendido hoje</span><b>{money(d.orders.paid_today_cents)}</b><small>{d.orders.paid_today} pagos · {d.orders.today} pedidos hoje · {d.orders.pending} aguardando</small></div>
       </div>

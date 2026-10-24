@@ -10,7 +10,7 @@ import { requireAdmin, hashPassword } from '../auth.js';
 import { getSetting, setSetting, normalizeArchive, refreshArchivePricing, archivePricing, priceCart } from '../pricing.js';
 import { markOrderPaid, mpEnabled, paymentOptions } from '../payments.js';
 import { dirs, storeAsset, removePhotoFiles, thumbUrl } from '../storage.js';
-import { invalidateFaces } from '../faces.js';
+import { invalidateFaces, FACE_MODEL } from '../faces.js';
 import { normalizeWatermark, watermarkPreview, clearWatermarkCache } from '../watermark.js';
 import { queueStatus } from '../jobs.js';
 import { driveInfo, SYNC_MINUTES } from '../drive.js';
@@ -541,7 +541,8 @@ r.get('/live', async (_req, res) => {
     ),
     db.one(
       `select (select count(*) from photos where key is not null)::int as photos,
-              (select count(*) from faces)::int as faces,
+              (select count(*) from faces where model = '${FACE_MODEL}')::int as faces,
+              (select count(*) from faces where model <> '${FACE_MODEL}')::int as old_faces,
               (select count(*) from events where kind = 'pool')::int as pool_groups,
               (select count(*) from events where kind = 'event')::int as events,
               (select count(*) from users where role = 'customer')::int as customers,
