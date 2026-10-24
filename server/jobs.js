@@ -2,7 +2,7 @@ import { db } from './db.js';
 import { renderPhoto, relocateOrphanPreviews, sweepOrphans } from './storage.js';
 import { detectFacesOnServer } from './facepool.js';
 import { withOriginal, withFaceSource, cleanFaceCache, isDriveOriginal, copyToServer } from './originals.js';
-import { saveFaces, invalidateFaces, migrateFaceModel } from './faces.js';
+import { saveFaces, invalidateFaces, migrateFaceModel, FACE_MODEL } from './faces.js';
 import { FACE_THREADS } from './facepool.js';
 import { syncDueSources } from './drive.js';
 import { pollPendingInfinitePay, checkInfinitePay } from './infinitepay.js';
@@ -206,10 +206,19 @@ async function tick() {
 async function sweep() {
   try {
     const r = await sweepOrphans(db);
+    // copias esquecidas do reconhecimento facial e rostos de modelos antigos que nao servem mais (a foto ja tem
+    // os rostos do modelo atual ou nao vai ser refeita); os que ainda carregam o borrao de um cliente ficam.
+    r.facecache = await cleanFaceCache(db);
+    const old = await db.query(
+      `delete from faces f where f.model <> $1 and f.blurred_user_id is null
+         and not exists (select 1 from photos p where p.id = f.photo_id and p.needs_faces)`,
+      [FACE_MODEL],
+    );
+    r.oldFaces = old.rowCount ?? old.affectedRows ?? 0;
     progress.sweep = { at: new Date().toISOString(), ...r };
     const mb = (r.bytes / 1024 ** 2).toFixed(1).replace('.', ',');
-    activity('faxina', r.tmp || r.previews
-      ? `Faxina: ${r.tmp} arquivo(s) temporário(s) e ${r.previews} prévia(s) sem uso apagados (${mb} MB liberados)`
+    activity('faxina', r.tmp || r.previews || r.facecache || r.oldFaces
+      ? `Faxina: ${r.tmp} arquivo(s) temporário(s), ${r.previews} prévia(s) sem uso, ${r.facecache} cópia(s) do reconhecimento facial e ${r.oldFaces} rosto(s) de modelos antigos apagados (${mb} MB liberados)`
       : 'Faxina: nada sobrando no servidor');
   } catch (err) {
     console.error('[faxina]', err.message);
