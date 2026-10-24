@@ -200,7 +200,7 @@ export default function Live() {
 
       <div className="kpis">
         <div className="kpi"><span>Importadas do Drive</span><b>{r.import.m10}</b><small>últimos 10 min · {r.import.m60} na última hora{r.skip.m60 ? ` · ${r.skip.m60} recusadas` : ''}</small></div>
-        <div className="kpi"><span>Fotos analisadas (rostos)</span><b>{r.scan.m10 + r.import.m10}</b><small>últimos 10 min · {compact(r.faces.m60)} rostos achados na fila em 1 h</small></div>
+        <div className="kpi"><span>Fotos analisadas (rostos)</span><b>{r.scan.m10}</b><small>últimos 10 min · {r.scan.m60.toLocaleString("pt-BR")} na última hora · {compact(r.faces.m60)} rostos achados</small></div>
         <div className="kpi"><span>Prévias refeitas</span><b>{r.render.m10}</b><small>últimos 10 min · {r.render.m60} em 1 h</small></div>
         <div className="kpi"><span>Encontradas p/ clientes</span><b>{r.match.m60}</b><small>na última hora · {t.matches_24h} em 24 h</small></div>
       </div>
