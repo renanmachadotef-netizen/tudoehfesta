@@ -6,6 +6,11 @@ import { config } from '../config.js';
 import { getSetting, priceCart, effectivePrice } from '../pricing.js';
 import { searchFaces, seedDescriptors, DIM, DEFAULT_THRESHOLD, THRESHOLD_RANGE } from '../faces.js';
 import { learnedFor, rememberMarks } from '../learn.js';
+import multer from 'multer';
+import { detectFacesOnServer } from '../facepool.js';
+
+// Selfie: fica so na memoria durante a analise (nunca vai para o disco) e e descartada em seguida.
+const selfieUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 8 * 1024 * 1024, files: 1 } });
 import { previewUrl, thumbUrl } from '../storage.js';
 import { paymentOptions } from '../payments.js';
 import { fail, rateLimit } from '../util.js';
@@ -249,6 +254,16 @@ r.get('/photos', async (req, res) => {
 });
 
 // Busca facial. Recebe so os vetores calculados no navegador: a selfie nunca sai do aparelho.
+// Selfie -> codigo do rosto (o maior rosto da foto). Mesmo motor das fotos do acervo, entao os codigos batem.
+r.post('/faces/embed', rateLimit('faces-embed', 30, 60_000), selfieUpload.single('file'), async (req, res) => {
+  if (!req.file) fail(400, 'Envie uma selfie.');
+  const faces = await detectFacesOnServer(req.file.buffer);
+  req.file.buffer = null;
+  if (!faces.length) return res.json({ faces: 0 });
+  const best = faces.sort((a, b) => b.box.w * b.box.h - a.box.w * a.box.h)[0];
+  res.json({ faces: faces.length, descriptor: best.d, box: best.box });
+});
+
 r.post('/faces/search', rateLimit('faces', 40, 60_000), async (req, res) => {
   const descriptors = (req.body?.descriptors || []).slice(0, 3);
   if (!descriptors.length || descriptors.some((d) => !Array.isArray(d) || d.length !== DIM)) {

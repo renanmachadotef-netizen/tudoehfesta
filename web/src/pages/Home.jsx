@@ -7,7 +7,7 @@ import EventBrowser, { QUICK_CATS } from '../components/EventBrowser.jsx';
 
 const FAQ = [
   ['Como encontro minhas fotos?', 'Toque em “Achar minhas fotos” e tire uma selfie. O reconhecimento facial procura você em todos os eventos (ou só em um ano, ou só em um evento) e mostra as fotos em que você aparece.'],
-  ['Minha selfie fica guardada?', 'Não. A selfie é analisada no seu próprio celular ou computador e vira uma sequência de números usada só para a busca. A imagem não é enviada para o nosso servidor.'],
+  ['Minha selfie fica guardada?', 'Não. A selfie é enviada com segurança ao nosso servidor só para virar uma sequência de números usada na busca, e a imagem é descartada na hora, sem ser gravada.'],
   ['Como recebo as fotos?', 'Assim que o pagamento é confirmado, as fotos ficam liberadas em “Fotos adquiridas”, em alta resolução e sem marca d’água. Você pode baixar quantas vezes quiser.'],
   ['Quais as formas de pagamento?', 'Pix (aprovação na hora) e cartão de crédito.'],
   ['Sou fotógrafo, posso vender aqui?', 'Pode! Cadastre-se em “Venda suas fotos”: você publica seus eventos, define seus preços e acompanha vendas e saques num painel próprio.'],
@@ -81,7 +81,7 @@ export default function Home() {
         <div className="home-selfie">
           <div className="stack" style={{ gap: 6, flex: '1 1 320px' }}>
             <h2 className="home-h2">Não sabe em qual evento está? Tire uma selfie.</h2>
-            <p className="muted">O reconhecimento facial procura você em todas as fotos{years.length ? `, de ${years[years.length - 1].year} até hoje` : ''}. A selfie é analisada no seu aparelho e não é enviada a ninguém.</p>
+            <p className="muted">O reconhecimento facial procura você em todas as fotos{years.length ? `, de ${years[years.length - 1].year} até hoje` : ''}. A selfie vira um código numérico e a foto é descartada na hora: não guardamos sua selfie.</p>
             {years.length > 0 && (
               <div className="chips chips-wrap" style={{ marginTop: 6 }}>
                 {years.map((y) => <Link key={y.year} to={`/ano/${y.year}`} className="chip">Fotos de {y.year}</Link>)}

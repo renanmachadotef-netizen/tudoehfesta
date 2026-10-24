@@ -2,22 +2,20 @@ import { db, toBuffer } from './db.js';
 import { getSetting, setSetting } from './pricing.js';
 import { activity } from './activity.js';
 
-// Busca facial por forca bruta em memoria. Modelo Human/FaceRes: cada rosto = 1024 numeros, guardados com
-// 1 byte cada (valor x SCALE; o FaceRes vai de 0 a ~1,8). 100 mil rostos = ~100 MB e uns 80 ms por busca.
-// Quando o acervo passar de algumas centenas de milhares de rostos, trocar por pgvector (indice HNSW)
-// sem mudar a API.
+// Busca facial por forca bruta em memoria. Modelo SFace (OpenCV): cada rosto = 128 numeros normalizados,
+// guardados com 1 byte cada (valor x SCALE + 128). 1 milhao de rostos = ~128 MB e ~0,3 s por busca.
 
-export const FACE_MODEL = 'human';
-export const DIM = 1024;
-const SCALE = 120;
-// Distancia euclidiana entre codigos. A mesma pessoa fica entre 3,5 e 7. No acervo real, rostos de pessoas
-// que nao estao nele chegam a ~8 (adultos) e criancas se amontoam ainda mais perto umas das outras; por isso,
-// alem do limite fixo, a busca usa um limite ajustado a cada selfie (ver searchFaces).
-export const DEFAULT_THRESHOLD = 7.5; // busca e "Encontradas para voce"
-export const STRICT_THRESHOLD = 7; // borrar e aprender referencias (mais rigoroso)
+export const FACE_MODEL = 'sface';
+export const DIM = 128;
+const SCALE = 250;
+// Distancia euclidiana entre codigos normalizados (0 a 2). Medido com rostos de varios tamanhos: a mesma
+// pessoa fica ate ~0,75; pessoas diferentes a partir de ~1,2. Alem do limite fixo, a busca usa um limite
+// ajustado a cada selfie (ver searchFaces), para grupos de rostos muito parecidos entre si (criancas).
+export const DEFAULT_THRESHOLD = 1; // busca e "Encontradas para voce"
+export const STRICT_THRESHOLD = 0.9; // borrar e aprender referencias (mais rigoroso)
 export const CROWD_RANK = 1000; // o "aglomerado" de rostos parecidos com a selfie: o milesimo rosto mais perto
-export const CROWD_MARGIN = 1.5; // so vale o que estiver pelo menos isso mais perto que o aglomerado
-export const THRESHOLD_RANGE = [6, 8.5];
+export const CROWD_MARGIN = 0.22; // so vale o que estiver pelo menos isso mais perto que o aglomerado
+export const THRESHOLD_RANGE = [0.7, 1.1];
 export const MAX_FACES = 80;
 
 let version = 0;
@@ -45,7 +43,7 @@ export function encodeDescriptor(arr) {
   for (let i = 0; i < DIM; i++) {
     const v = Number(arr[i]);
     if (!Number.isFinite(v)) return null;
-    q[i] = Math.max(0, Math.min(255, Math.round(v * SCALE)));
+    q[i] = Math.max(0, Math.min(255, Math.round(v * SCALE) + 128));
   }
   return Buffer.from(q.buffer);
 }
@@ -53,7 +51,7 @@ export function encodeDescriptor(arr) {
 export function decodeDescriptor(bytes) {
   const b = toBuffer(bytes);
   const f = new Float32Array(DIM);
-  for (let i = 0; i < DIM; i++) f[i] = b[i] / SCALE;
+  for (let i = 0; i < DIM; i++) f[i] = (b[i] - 128) / SCALE;
   return f;
 }
 
@@ -174,7 +172,7 @@ function crowdLimit(q, data, n) {
 // e o limite usado.
 export async function searchFaces(descriptors, scope, threshold = DEFAULT_THRESHOLD, limit = 1000) {
   // As contas sao feitas na escala de 1 byte (inteiros): rapido e sem converter o acervo.
-  const queries = descriptors.map((d) => Float32Array.from(d, (v) => Math.max(0, Math.min(255, v * SCALE))));
+  const queries = descriptors.map((d) => Float32Array.from(d, (v) => Math.max(0, Math.min(255, v * SCALE + 128))));
   const { photoIds, eventIds, data } = await loadScope(scope);
   const best = new Map();
   // o aglomerado e medido pela selfie (primeiro vetor); vale para todas as referencias da busca

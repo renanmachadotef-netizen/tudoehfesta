@@ -13,7 +13,7 @@ import { activity } from './activity.js';
 const LEARN = STRICT_THRESHOLD; // mais rigoroso que a busca
 const SAME_PERSON = DEFAULT_THRESHOLD;
 const MAX_LEARNED = 12;
-const MIN_FACE = 0.05; // largura minima do rosto (fracao da largura da foto)
+const MIN_FACE = 0.03; // largura minima do rosto (fracao da largura da foto)
 
 const vec = decodeDescriptor;
 
@@ -84,7 +84,7 @@ export async function learnUser(userId) {
     if (changed) {
       await t.query(`delete from user_faces where user_id = $1 and source <> 'selfie'`, [userId]);
       for (const c of chosen) {
-        await t.query('insert into user_faces (user_id, descriptor, source, photo_id) values ($1, $2, $3, $4)', [userId, c.raw, c.source, c.photoId]);
+        await t.query('insert into user_faces (user_id, descriptor, source, photo_id, model) values ($1, $2, $3, $4, $5)', [userId, c.raw, c.source, c.photoId, FACE_MODEL]);
       }
       // Referencias mudaram: refaz "Encontradas para voce" e o borrao com elas.
       await t.query('update users set needs_face_scan = true where id = $1', [userId]);

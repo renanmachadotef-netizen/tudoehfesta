@@ -3,20 +3,20 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Worker } from 'node:worker_threads';
 
-// Reconhecimento facial no servidor em varias threads (ver face-worker.cjs). Cada foto leva alguns segundos
-// de CPU e cada thread usa ~450 MB; com N threads, N fotos sao analisadas ao mesmo tempo.
+// Reconhecimento facial no servidor em varias threads (ver face-worker.mjs). Cada foto leva alguns segundos
+// de CPU e cada thread usa ~300 MB; com N threads, N fotos sao analisadas ao mesmo tempo.
 // FACE_THREADS fixa o numero; sem ele: metade dos nucleos (o resto fica para o site e a importacao),
 // cabendo na memoria (deixa 1,5 GB para o resto), ate 4.
 const here = path.dirname(fileURLToPath(import.meta.url));
 const memory = process.constrainedMemory?.() || os.totalmem();
-const byMemory = Math.floor((memory - 1.5 * 2 ** 30) / (450 * 2 ** 20));
+const byMemory = Math.floor((memory - 1.5 * 2 ** 30) / (300 * 2 ** 20));
 export const FACE_THREADS = Math.max(1, Math.min(8, Number(process.env.FACE_THREADS) || Math.min(4, Math.floor(os.cpus().length / 2), byMemory)));
 const workers = [];
 const queue = [];
 let seq = 0;
 
 function spawn() {
-  const w = new Worker(path.join(here, 'face-worker.cjs'));
+  const w = new Worker(path.join(here, 'face-worker.mjs'));
   w.jobs = new Map();
   w.on('message', ({ id, faces, error }) => {
     const job = w.jobs.get(id);
@@ -45,7 +45,7 @@ function next() {
   }
 }
 
-// -> [{ d: number[1024], box: {x,y,w,h} (fracoes), score }]
+// -> [{ d: number[128], box: {x,y,w,h} (fracoes), score }]
 export function detectFacesOnServer(file) {
   return new Promise((resolve, reject) => {
     queue.push({ id: ++seq, file, resolve, reject });

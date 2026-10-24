@@ -389,11 +389,11 @@ update users set needs_face_learn = true
 -- os rostos antigos (face-api) ficam ate a foto ser refeita e nao entram na busca.
 alter table faces add column if not exists model text;
 update faces set model = 'faceapi' where model is null;
-alter table faces alter column model set default 'human';
+alter table faces alter column model drop default;
 create index if not exists faces_model_idx on faces (model, id);
 alter table user_faces add column if not exists model text;
 update user_faces set model = 'faceapi' where model is null;
-alter table user_faces alter column model set default 'human';
+alter table user_faces alter column model drop default;
 alter table users add column if not exists face_update_needed boolean not null default false;
 
 -- v21: fotos aparecem com a previa pronta; se algum cliente pediu borrao, esperam a checagem de rosto.

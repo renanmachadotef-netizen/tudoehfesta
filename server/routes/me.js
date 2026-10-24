@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import { Router } from 'express';
 import { db } from '../db.js';
 import { requireUser } from '../auth.js';
-import { encodeDescriptor } from '../faces.js';
+import { encodeDescriptor, FACE_MODEL } from '../faces.js';
 import { photoOut } from './public.js';
 import { fail, rateLimit } from '../util.js';
 import { activity } from '../activity.js';
@@ -97,7 +97,7 @@ r.post('/me/face', rateLimit('face-register', 10, 60_000), async (req, res) => {
   await db.tx(async (t) => {
     // Selfie nova: as referencias aprendidas sao refeitas a partir dela (compras e fotos marcadas).
     await t.query('delete from user_faces where user_id = $1', [req.user.id]);
-    for (const d of descs) await t.query(`insert into user_faces (user_id, descriptor, source) values ($1, $2, 'selfie')`, [req.user.id, d]);
+    for (const d of descs) await t.query(`insert into user_faces (user_id, descriptor, source, model) values ($1, $2, 'selfie', $3)`, [req.user.id, d, FACE_MODEL]);
     await t.query('update users set face_consent_at = now(), needs_face_scan = true, needs_face_learn = true, face_update_needed = false where id = $1', [req.user.id]);
   });
   activity('rosto', `Cliente #${req.user.id} cadastrou o rosto para monitoramento`);

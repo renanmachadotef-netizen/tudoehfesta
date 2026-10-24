@@ -15,12 +15,10 @@
     "start": "node server/index.js"
   },
   "dependencies": {
-    "@tensorflow/tfjs": "4.22.0",
-    "@tensorflow/tfjs-backend-wasm": "4.22.0",
-    "@vladmandic/human": "3.3.6",
     "express": "^5.2.1",
     "fflate": "^0.8.3",
     "multer": "^2.0.2",
+    "onnxruntime-web": "1.30.0",
     "pg": "^8.16.3",
     "sharp": "^0.34.5",
     "tesseract.js": "^7.0.0"

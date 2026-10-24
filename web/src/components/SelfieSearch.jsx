@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Camera, ImagePlus, ScanFace, ShieldCheck, X, SwitchCamera, UserPlus, Trash2, Search } from 'lucide-react';
-import { fileToCanvas, loadFaceEngine, selfieDescriptor, selfieStore } from '../lib/faces.js';
+import { fileToCanvas, selfieDescriptor, selfieStore } from '../lib/faces.js';
 
-// Captura a selfie (camera ou arquivo), gera o vetor do rosto no aparelho e entrega ao pai.
+// Captura a selfie (camera ou arquivo), gera o codigo do rosto no servidor (a foto nao e guardada) e entrega ao pai.
 // onSelfie({ descriptor, preview }) e chamado quando ha selfie pronta. Por padrao a selfie vale so para esta busca
 // (troca facil para buscar um amigo); com "Lembrar esta selfie" ela fica na aba para outros anos e eventos.
 export default function SelfieSearch({ onSelfie, title = 'Encontre suas fotos com uma selfie', subtitle, scopeNote, busy, consentText, actionLabel = 'Buscar minhas fotos', readyTitle = 'Sua selfie está pronta', allowRemember = true }) {
@@ -31,11 +31,6 @@ export default function SelfieSearch({ onSelfie, title = 'Encontre suas fotos co
 
   useEffect(() => () => stopCamera(), []);
 
-  // Pre-carrega o modelo assim que a pessoa marca o consentimento.
-  useEffect(() => {
-    if (consent) loadFaceEngine().catch(() => {});
-  }, [consent]);
-
   function stopCamera() {
     streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
@@ -45,7 +40,6 @@ export default function SelfieSearch({ onSelfie, title = 'Encontre suas fotos co
     setMode('working');
     setError('');
     try {
-      await loadFaceEngine(setStatus);
       setStatus('Procurando seu rosto…');
       const res = await selfieDescriptor(input);
       if (!res) {
@@ -60,7 +54,7 @@ export default function SelfieSearch({ onSelfie, title = 'Encontre suas fotos co
       onSelfie?.(s);
     } catch (err) {
       console.error(err);
-      setError('Seu navegador não conseguiu rodar o reconhecimento facial. Tente pelo Chrome ou Safari atualizado.');
+      setError(err.status === 429 ? 'Muitas tentativas seguidas. Espere um minuto e tente de novo.' : 'Não conseguimos analisar a selfie agora. Verifique a internet e tente de novo.');
       setMode('idle');
     }
   }
@@ -136,7 +130,7 @@ export default function SelfieSearch({ onSelfie, title = 'Encontre suas fotos co
                 ? 'Selfie lembrada nesta aba para buscar em outros anos e eventos. Ao fechar a aba ela some.'
                 : allowRemember
                   ? 'Esta selfie vale só para esta busca. Com amigos? Use “Nova selfie” para procurar cada um.'
-                  : 'Usamos sua selfie só neste aparelho.'}
+                  : 'Sua selfie é usada só para esta busca e não é guardada.'}
           </p>
           {scopeNote && <span className="scope-note"><Search size={13} /> {scopeNote}</span>}
         </div>
@@ -163,7 +157,7 @@ export default function SelfieSearch({ onSelfie, title = 'Encontre suas fotos co
             <label className="check">
               <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} />
               <span>
-                {consentText || 'Autorizo usar minha selfie para encontrar minhas fotos. Ela é analisada no meu aparelho, não é enviada nem guardada.'}{' '}
+                {consentText || 'Autorizo usar minha selfie para encontrar minhas fotos. Ela é analisada no servidor do site só para gerar o código do rosto e é descartada na hora, sem ser guardada.'}{' '}
                 <Link to="/privacidade" style={{ textDecoration: 'underline' }}>Saiba mais</Link>
               </span>
             </label>
@@ -207,7 +201,7 @@ export default function SelfieSearch({ onSelfie, title = 'Encontre suas fotos co
       {mode === 'working' && <div className="row small" style={{ color: 'rgba(255,255,255,.8)' }}><div className="spinner" /> {status}</div>}
       {error && <div className="alert alert-bad">{error}</div>}
       <div className="row tiny" style={{ color: 'rgba(255,255,255,.5)', gap: 6 }}>
-        <ShieldCheck size={14} /> Sua selfie não sai do seu aparelho (LGPD).
+        <ShieldCheck size={14} /> Sua selfie não é guardada: vira um código numérico e a foto é descartada (LGPD).
       </div>
     </div>
   );
