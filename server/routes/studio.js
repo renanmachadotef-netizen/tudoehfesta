@@ -6,7 +6,7 @@ import multer from 'multer';
 import { db } from '../db.js';
 import { config } from '../config.js';
 import { requirePhotographer, requireUser, hashPassword } from '../auth.js';
-import { dirs, saveOriginal, renderPhoto, photoSha, removePhotoFiles, storeAsset, movePhotoFiles, PROTECT_MODES } from '../storage.js';
+import { dirs, saveOriginal, renderPhoto, photoSha, removePhotoFiles, storeAsset, movePhotoFiles, PROTECT_MODES, clearProtectCache } from '../storage.js';
 import { normalizeWatermark, watermarkPreview, clearWatermarkCache } from '../watermark.js';
 import { driveInfo, parseFolderId, folderName, previewSource, ignoreWords } from '../drive.js';
 import { queueStatus } from '../jobs.js';
@@ -228,7 +228,10 @@ r.put('/events/:id', async (req, res) => {
   await db.query('update events set visibility = $2, password_hash = coalesce($3, password_hash), publish_at = $4, protect_mode = $5, bib_search = $6, accepts_partners = $7 where id = $1',
     [ev.id, f.visibility, f.password ? await hashPassword(f.password) : null, f.status === 'draft' ? f.publish_at : null, f.protect_mode, f.bib_search, f.accepts_partners]);
   // Protecao da previa mudou: refaz as previas. (Busca por numero ligada: a fila le as fotos com bib_done = false.)
-  if ((ev.protect_mode || 'none') !== f.protect_mode) await db.query('update photos set needs_render = true where event_id = $1', [ev.id]);
+  if ((ev.protect_mode || 'none') !== f.protect_mode) {
+    clearProtectCache(ev.id);
+    await db.query('update photos set needs_render = true where event_id = $1', [ev.id]);
+  }
 
   if (String(ev.event_date) !== f.event_date) {
     await db.query('update faces set year = $2 where event_id = $1', [ev.id, Number(f.event_date.slice(0, 4))]);

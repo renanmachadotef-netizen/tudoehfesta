@@ -10,11 +10,14 @@ import { activity } from './activity.js';
 export const FACE_MODEL = 'human';
 export const DIM = 1024;
 const SCALE = 120;
-// Distancia euclidiana entre codigos. Calibrado com rostos de varios tamanhos: a mesma pessoa fica entre
-// 3,5 e 7 (ate ~9 em rosto minusculo); pessoas diferentes a partir de ~9.
-export const DEFAULT_THRESHOLD = 8.5; // busca e "Encontradas para voce"
-export const STRICT_THRESHOLD = 7.5; // borrar e aprender referencias (mais rigoroso)
-export const THRESHOLD_RANGE = [6, 10];
+// Distancia euclidiana entre codigos. A mesma pessoa fica entre 3,5 e 7. No acervo real, rostos de pessoas
+// que nao estao nele chegam a ~8 (adultos) e criancas se amontoam ainda mais perto umas das outras; por isso,
+// alem do limite fixo, a busca usa um limite ajustado a cada selfie (ver searchFaces).
+export const DEFAULT_THRESHOLD = 7.5; // busca e "Encontradas para voce"
+export const STRICT_THRESHOLD = 7; // borrar e aprender referencias (mais rigoroso)
+export const CROWD_RANK = 1000; // o "aglomerado" de rostos parecidos com a selfie: o milesimo rosto mais perto
+export const CROWD_MARGIN = 1.5; // so vale o que estiver pelo menos isso mais perto que o aglomerado
+export const THRESHOLD_RANGE = [6, 8.5];
 export const MAX_FACES = 80;
 
 let version = 0;
@@ -150,13 +153,33 @@ export async function seedDescriptors(photoIds, queries, threshold = DEFAULT_THR
   return added;
 }
 
-// descriptors: lista de vetores (selfie, fotos marcadas, referencias aprendidas). Devolve fotos pela menor distancia.
+// Limite ajustado a selfie: mede a que distancia fica o aglomerado de rostos parecidos com ela (o milesimo
+// rosto mais perto do escopo, ou a mediana em escopos pequenos) e aceita so o que estiver bem mais perto.
+// A pessoa de verdade fica destacada do aglomerado; rostos so "parecidos" (criancas, por exemplo) nao.
+function crowdLimit(q, data, n) {
+  if (n < 40) return Infinity;
+  const rank = Math.min(CROWD_RANK, Math.floor(n / 2));
+  const ds = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    const off = i * DIM;
+    let sum = 0;
+    for (let k = 0; k < DIM; k++) { const d = data[off + k] - q[k]; sum += d * d; }
+    ds[i] = sum;
+  }
+  ds.sort();
+  return Math.sqrt(ds[rank - 1]) / SCALE - CROWD_MARGIN;
+}
+
+// descriptors: lista de vetores (selfie, fotos marcadas, referencias aprendidas). Devolve fotos pela menor distancia
+// e o limite usado.
 export async function searchFaces(descriptors, scope, threshold = DEFAULT_THRESHOLD, limit = 1000) {
   // As contas sao feitas na escala de 1 byte (inteiros): rapido e sem converter o acervo.
   const queries = descriptors.map((d) => Float32Array.from(d, (v) => Math.max(0, Math.min(255, v * SCALE))));
   const { photoIds, eventIds, data } = await loadScope(scope);
   const best = new Map();
-  const t2 = (threshold * SCALE) ** 2;
+  // o aglomerado e medido pela selfie (primeiro vetor); vale para todas as referencias da busca
+  const used = Math.min(threshold, queries.length ? crowdLimit(queries[0], data, photoIds.length) : Infinity);
+  const t2 = (used * SCALE) ** 2;
   for (let i = 0, n = photoIds.length; i < n; i++) {
     const off = i * DIM;
     for (const q of queries) {
@@ -173,5 +196,7 @@ export async function searchFaces(descriptors, scope, threshold = DEFAULT_THRESH
       }
     }
   }
-  return [...best.values()].sort((a, b) => a.distance - b.distance).slice(0, limit);
+  const hits = [...best.values()].sort((a, b) => a.distance - b.distance).slice(0, limit);
+  hits.limit = used;
+  return hits;
 }

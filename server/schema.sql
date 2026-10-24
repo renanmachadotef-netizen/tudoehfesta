@@ -247,7 +247,8 @@ alter table drive_sources alter column year drop not null;
 -- events.kind: 'event' = evento cadastrado (aparece nas listas); 'pool' = acervo do ano, criado sozinho a partir
 -- das pastas do Drive (so aparece na busca por ano/selfie). Ligar a pasta a um evento cadastrado migra as fotos.
 alter table events add column if not exists kind text not null default 'event';
-update events set kind = 'pool' where kind = 'event' and drive_source_id in (select id from drive_sources where kind = 'year');
+-- (A conversao "evento da pasta do ano -> acervo" rodou uma vez nesta versao. Ela NAO pode ficar aqui: o schema
+-- roda a cada inicio do servidor e desfazia os eventos liberados para a pagina principal pelo admin.)
 create index if not exists events_kind_idx on events (kind, status);
 
 -- Rosto cadastrado pelo cliente (so o vetor de 128 numeros; a selfie nao e guardada). Consentimento LGPD explicito.
@@ -397,3 +398,6 @@ alter table users add column if not exists face_update_needed boolean not null d
 
 -- v21: fotos aparecem com a previa pronta; se algum cliente pediu borrao, esperam a checagem de rosto.
 create index if not exists users_blur_idx on users (id) where blur_me;
+
+-- v22: limite ajustado ao rosto cadastrado (medido na varredura completa; criancas ficam com limite menor).
+alter table users add column if not exists face_limit real;

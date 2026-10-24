@@ -1,5 +1,5 @@
 import { db } from './db.js';
-import { FACE_MODEL, DEFAULT_THRESHOLD, STRICT_THRESHOLD, decodeDescriptor, dist2, invalidateFaces } from './faces.js';
+import { FACE_MODEL, DEFAULT_THRESHOLD, STRICT_THRESHOLD, CROWD_RANK, CROWD_MARGIN, decodeDescriptor, dist2, invalidateFaces } from './faces.js';
 import { getSetting, setSetting } from './pricing.js';
 import { activity, count } from './activity.js';
 
@@ -19,13 +19,13 @@ const dist = (a, b) => Math.sqrt(dist2(a, b));
 
 async function loadProfiles(userId = null) {
   const rows = await db.many(
-    `select uf.user_id, uf.descriptor, u.blur_me from user_faces uf join users u on u.id = uf.user_id
+    `select uf.user_id, uf.descriptor, u.blur_me, u.face_limit from user_faces uf join users u on u.id = uf.user_id
       where ($1::int is null or uf.user_id = $1) and uf.model = $2`,
     [userId, FACE_MODEL],
   );
   const byUser = new Map();
   for (const r of rows) {
-    if (!byUser.has(r.user_id)) byUser.set(r.user_id, { userId: r.user_id, blur: r.blur_me, descs: [] });
+    if (!byUser.has(r.user_id)) byUser.set(r.user_id, { userId: r.user_id, blur: r.blur_me, limit: r.face_limit, descs: [] });
     byUser.get(r.user_id).descs.push(vec(r.descriptor));
   }
   return [...byUser.values()];
@@ -43,7 +43,9 @@ async function compare(faces, profiles) {
       if (f.blurred_user_id && f.blurred_user_id !== p.userId) continue;
       let best = Infinity;
       for (const d of p.descs) best = Math.min(best, dist(fv, d));
-      if (best <= MATCH) {
+      // limite ajustado ao rosto da pessoa (medido na varredura), nunca acima do limite fixo
+      const match = Math.min(MATCH, p.limit ?? MATCH);
+      if (best <= match) {
         const r = await db.query(
           `insert into user_matches (user_id, photo_id, distance) values ($1, $2, $3)
            on conflict (user_id, photo_id) do update set distance = least(user_matches.distance, excluded.distance)
@@ -52,7 +54,7 @@ async function compare(faces, profiles) {
         );
         if (r.rows[0]?.fresh) found++;
       }
-      if (p.blur && best <= BLUR && !f.blurred_user_id) {
+      if (p.blur && best <= Math.min(BLUR, match) && !f.blurred_user_id) {
         await db.query('update faces set blurred_user_id = $2 where id = $1 and blurred_user_id is null', [f.id, p.userId]);
         rerender.add(f.photo_id);
         blurred++;
@@ -84,6 +86,18 @@ async function scanUser(userId) {
   await db.query('delete from user_matches where user_id = $1 and not seen', [userId]);
   const profiles = await loadProfiles(userId);
   if (profiles.length) {
+    // Aglomerado de rostos parecidos com o cadastro (como na busca por selfie): so vale o que fica bem mais perto.
+    const near = [];
+    for (let cursor = 0; ;) {
+      const faces = await db.many(`select id, descriptor from faces where id > $1 and model = '${FACE_MODEL}' order by id limit $2`, [cursor, BATCH]);
+      if (!faces.length) break;
+      for (const f of faces) { const fv = vec(f.descriptor); let b = Infinity; for (const d of profiles[0].descs) b = Math.min(b, dist(fv, d)); near.push(b); }
+      cursor = faces[faces.length - 1].id;
+    }
+    near.sort((a, b) => a - b);
+    const limit = near.length >= 40 ? near[Math.min(CROWD_RANK, Math.floor(near.length / 2)) - 1] - CROWD_MARGIN : null;
+    profiles[0].limit = limit;
+    await db.query('update users set face_limit = $2 where id = $1', [userId, limit]);
     let cursor = 0;
     for (;;) {
       const faces = await db.many(`select id, photo_id, descriptor, blurred_user_id from faces where id > $1 and model = '${FACE_MODEL}' order by id limit $2`, [cursor, BATCH]);

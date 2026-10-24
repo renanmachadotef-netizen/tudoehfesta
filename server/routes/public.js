@@ -272,7 +272,8 @@ r.post('/faces/search', rateLimit('faces', 40, 60_000), async (req, res) => {
   const hits = await searchFaces([...descriptors, ...seeds.map((s) => s.descriptor), ...learned], key, threshold);
   const seedsUsed = seeds.map((s) => s.photoId);
   if (req.user && seedsUsed.length) await rememberMarks(req.user.id, seedsUsed);
-  if (!hits.length) return res.json({ photos: [], events: [], seeds: seedsUsed, learned: learned.length });
+  const limitUsed = Number(Math.max(0, hits.limit).toFixed(2));
+  if (!hits.length) return res.json({ photos: [], events: [], seeds: seedsUsed, learned: learned.length, limit: limitUsed });
   const ids = hits.map((h) => h.photoId);
   const rows = await db.many(
     `select p.id, p.event_id, p.width, p.height, p.key from photos p join events e on e.id = p.event_id and e.status = 'published'
@@ -283,7 +284,7 @@ r.post('/faces/search', rateLimit('faces', 40, 60_000), async (req, res) => {
   const photos = hits.filter((h) => byId.has(h.photoId)).map((h) => ({ ...photoOut(byId.get(h.photoId)), distance: Number(h.distance.toFixed(3)) }));
   const eventIds = [...new Set(photos.map((p) => p.event_id))];
   const events = (await db.many(`select ${EVENT_CARD} ${EVENT_JOINS} where e.id = any($1::int[]) order by e.event_date desc`, [eventIds])).map(publicCard);
-  res.json({ photos, events, seeds: seedsUsed, learned: learned.length });
+  res.json({ photos, events, seeds: seedsUsed, learned: learned.length, limit: limitUsed });
 });
 
 r.get('/photographers', async (_req, res) => {

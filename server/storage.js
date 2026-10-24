@@ -136,6 +136,8 @@ export async function protectPreview(buf, w, h, mode) {
   return sharp(buf).blur(Math.max(14, Math.round(Math.min(w, h) / 45))).composite([{ input: sharpPart }]).toBuffer();
 }
 const protectCache = new Map();
+// Evento salvo: a proteção pode ter mudado (as previas refeitas em seguida tem de usar a nova).
+export const clearProtectCache = (eventId) => protectCache.delete(Number(eventId));
 async function protectForEvent(eventId) {
   const hit = protectCache.get(eventId);
   if (hit && Date.now() - hit.at < 10_000) return hit.mode;
