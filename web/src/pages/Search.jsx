@@ -73,8 +73,8 @@ export function FaceResults({ result, refine }) {
               <button type="button" className="year-head" onClick={() => toggle(y)} aria-expanded={isOpen(y)} disabled={single}>
                 <b className="year-num">{y}</b>
                 <span className="year-info">
-                  <b>{plural(photos.length, 'foto', 'fotos')}</b>
-                  <span className="small muted">{plural(gs.length, 'evento', 'eventos')}{marked ? ` · ${marked} marcada(s) como “Sou eu”` : ''}</span>
+                  <span><b>{plural(photos.length, 'foto', 'fotos')}</b> <span className="muted">· {plural(gs.length, 'evento', 'eventos')}</span></span>
+                  {marked > 0 && <span className="year-marked">✓ {plural(marked, 'marcada', 'marcadas')}<span className="hide-sm"> como “Sou eu”</span></span>}
                 </span>
                 <span className="year-peek" aria-hidden="true">
                   {photos.slice(0, 5).map((p) => <img key={p.id} src={p.thumb} alt="" loading="lazy" />)}
@@ -119,10 +119,10 @@ function RefineBottom({ refine }) {
         <button className="btn btn-accent" disabled={busy || !pending} onClick={again}><RefreshCw size={16} /> {pending ? label : 'Fazer nova busca com as novas referências'}</button>
       </div>
       {pending && (
-        <div className="refine-bar" role="region" aria-label="Nova busca com as fotos marcadas">
-          <span className="small"><b>{plural(seeds.length, 'foto marcada', 'fotos marcadas')}</b> como “Sou eu”</span>
-          <button className="btn btn-sm btn-accent" disabled={busy} onClick={again}><RefreshCw size={15} /> {busy ? 'Buscando…' : 'Buscar de novo'}</button>
-        </div>
+        <button type="button" className="refine-bar" disabled={busy} onClick={again} aria-label={`Buscar de novo com ${plural(seeds.length, 'foto marcada', 'fotos marcadas')}`}>
+          <span className="refine-bar-text"><b>{plural(seeds.length, 'foto marcada', 'fotos marcadas')}</b><span className="hide-sm"> como “Sou eu”</span></span>
+          <span className="refine-bar-go"><RefreshCw size={16} /> {busy ? 'Buscando…' : 'Buscar de novo'}</span>
+        </button>
       )}
     </>
   );
