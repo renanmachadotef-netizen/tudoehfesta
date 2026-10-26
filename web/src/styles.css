@@ -542,3 +542,21 @@ details.faq p { margin-top: 10px; color: var(--ink-2); }
 .live-wrap { position: relative; width: 100%; max-width: 420px; }
 .live-wrap .selfie-video { width: 100%; }
 .live-step { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); width: calc(100% - 28px); text-align: center; padding: 10px 14px; border-radius: 10px; background: rgba(0,0,0,.72); color: #fff; font-weight: 700; font-size: 17px; }
+
+/* Resultado da busca por ano (fechado/aberto) */
+.year-list { display: flex; flex-direction: column; gap: 10px; }
+.year-row { background: var(--paper); border-radius: var(--radius); box-shadow: var(--shadow); overflow: hidden; }
+.year-head { width: 100%; display: flex; align-items: center; gap: 16px; padding: 14px 18px; border: 0; background: none; cursor: pointer; text-align: left; font: inherit; color: inherit; }
+.year-head:disabled { cursor: default; }
+.year-head:hover:not(:disabled) { background: var(--surface); }
+.year-num { font-size: 26px; font-weight: 800; letter-spacing: -0.02em; min-width: 70px; }
+.year-info { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.year-peek { display: flex; gap: 4px; }
+.year-peek img { width: 46px; height: 46px; object-fit: cover; border-radius: 6px; }
+.year-chev { flex: none; transition: transform .2s; color: var(--muted); }
+.year-row.open .year-chev { transform: rotate(180deg); }
+.year-body { padding: 4px 18px 20px; border-top: 1px solid var(--line); padding-top: 18px; }
+@media (max-width: 640px) { .year-peek img:nth-child(n+3) { display: none; } .year-num { font-size: 22px; min-width: 56px; } }
+.refine-end { margin-top: 6px; }
+.refine-bar { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 45; display: flex; align-items: center; gap: 14px; padding: 10px 12px 10px 18px; border-radius: 999px; background: var(--night); color: #fff; box-shadow: 0 8px 28px rgba(0,0,0,.3); max-width: calc(100% - 24px); }
+@media (max-width: 860px) { .refine-bar { bottom: 80px; } }

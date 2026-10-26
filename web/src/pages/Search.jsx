@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ScanFace, Calendar, ArrowRight, RefreshCw, X } from 'lucide-react';
+import { ScanFace, Calendar, ArrowRight, RefreshCw, X, ChevronDown } from 'lucide-react';
 import { api } from '../lib/api.js';
 import { useSite, useTitle } from '../lib/site.jsx';
 import { dateBR, plural } from '../lib/format.js';
@@ -21,9 +21,11 @@ function WatchInvite() {
   );
 }
 
-// Resultado da busca facial agrupado por evento.
+// Resultado da busca facial: um bloco por ano (fechado, com contagem e amostra), e dentro dele os eventos.
+// Com 20+ anos de acervo, a lista corrida ficaria enorme; a pessoa abre so os anos que quer ver.
 export function FaceResults({ result, refine }) {
   const owned = useOwned();
+  const [open, setOpen] = useState(() => new Set());
   if (!result) return null;
   if (!result.photos.length) {
     return (
@@ -38,27 +40,91 @@ export function FaceResults({ result, refine }) {
     const ev = evById.get(p.event_id);
     return { ...p, event_title: ev?.title, event_slug: ev?.slug, price_cents: ev?.price_cents };
   };
+  const byYear = new Map();
+  for (const g of groups) {
+    const y = String(g.ev.event_date).slice(0, 4);
+    if (!byYear.has(y)) byYear.set(y, []);
+    byYear.get(y).push(g);
+  }
+  const years = [...byYear.entries()].sort((x, y) => y[0].localeCompare(x[0]));
+  const single = years.length === 1;
+  const isOpen = (y) => single || open.has(y);
+  const toggle = (y) => setOpen((cur) => { const n = new Set(cur); if (n.has(y)) n.delete(y); else n.add(y); return n; });
+  const picked = refine ? new Set(refine.seeds.map((x) => x.id)) : undefined;
 
   return (
-    <div className="stack" style={{ gap: 30 }}>
+    <div className="stack" style={{ gap: 22 }}>
       <WatchInvite />
-      <span><b>{plural(result.photos.length, 'foto', 'fotos')}</b> com você em {plural(groups.length, 'evento', 'eventos')}{refine?.seeds.length ? ` (selfie + ${plural(refine.seeds.length, 'foto marcada', 'fotos marcadas')})` : ''}{result.learned ? ` · usando também ${plural(result.learned, 'foto', 'fotos')} que seu rosto cadastrado aprendeu` : ''}</span>
+      <span><b>{plural(result.photos.length, 'foto', 'fotos')}</b> com você em {plural(groups.length, 'evento', 'eventos')}{years.length > 1 ? `, de ${years.length} anos` : ''}{refine?.seeds.length ? ` (selfie + ${plural(refine.seeds.length, 'foto marcada', 'fotos marcadas')})` : ''}{result.learned ? ` · usando também ${plural(result.learned, 'foto', 'fotos')} que seu rosto cadastrado aprendeu` : ''}</span>
       {refine && <RefinePanel refine={refine} />}
       <BuyAll photos={result.photos.filter((p) => !owned.has(p.id)).map(withInfo)} />
-      {groups.map(({ ev, photos }) => (
-        <section key={ev.id} className="stack" style={{ gap: 12 }}>
-          <div className="row between">
-            <div>
-              {ev.kind === 'pool' ? <h3>{ev.title} <span className="badge" style={{ verticalAlign: 3 }}>Acervo {String(ev.event_date).slice(0, 4)}</span></h3> : <Link to={`/evento/${ev.slug}`}><h3>{ev.title}</h3></Link>}
-              <span className="small muted row" style={{ gap: 5 }}><Calendar size={13} /> {dateBR(ev.event_date)} {ev.city && `· ${ev.city}`} · {plural(photos.length, 'foto', 'fotos')}</span>
-            </div>
-            {ev.kind !== 'pool' && <Link to={`/evento/${ev.slug}`} className="btn btn-sm btn-ghost">Ver evento <ArrowRight size={14} /></Link>}
-          </div>
-          <PhotoGrid photos={photos} rowHeight={180} owned={owned} eventInfo={{ event_title: ev.title, event_slug: ev.slug, price_cents: ev.price_cents }}
-            picked={refine ? new Set(refine.seeds.map((s) => s.id)) : undefined} onPick={refine?.toggle} />
-        </section>
-      ))}
+      {years.length > 1 && (
+        <div className="row" style={{ gap: 8 }}>
+          <button type="button" className="btn btn-sm btn-ghost" onClick={() => setOpen(new Set(years.map(([y]) => y)))}>Abrir todos os anos</button>
+          <button type="button" className="btn btn-sm btn-ghost" onClick={() => setOpen(new Set())}>Fechar todos</button>
+        </div>
+      )}
+      <div className="year-list">
+        {years.map(([y, gs]) => {
+          const photos = gs.flatMap((g) => g.photos);
+          const marked = picked ? photos.filter((p) => picked.has(p.id)).length : 0;
+          return (
+            <section key={y} className={`year-row${isOpen(y) ? ' open' : ''}`}>
+              <button type="button" className="year-head" onClick={() => toggle(y)} aria-expanded={isOpen(y)} disabled={single}>
+                <b className="year-num">{y}</b>
+                <span className="year-info">
+                  <b>{plural(photos.length, 'foto', 'fotos')}</b>
+                  <span className="small muted">{plural(gs.length, 'evento', 'eventos')}{marked ? ` · ${marked} marcada(s) como “Sou eu”` : ''}</span>
+                </span>
+                <span className="year-peek" aria-hidden="true">
+                  {photos.slice(0, 5).map((p) => <img key={p.id} src={p.thumb} alt="" loading="lazy" />)}
+                </span>
+                {!single && <ChevronDown size={20} className="year-chev" />}
+              </button>
+              {isOpen(y) && (
+                <div className="year-body stack" style={{ gap: 26 }}>
+                  {gs.map(({ ev, photos: ph }) => (
+                    <section key={ev.id} className="stack" style={{ gap: 12 }}>
+                      <div className="row between">
+                        <div>
+                          {ev.kind === 'pool' ? <h3>{ev.title} <span className="badge" style={{ verticalAlign: 3 }}>Acervo {y}</span></h3> : <Link to={`/evento/${ev.slug}`}><h3>{ev.title}</h3></Link>}
+                          <span className="small muted row" style={{ gap: 5 }}><Calendar size={13} /> {dateBR(ev.event_date)} {ev.city && `· ${ev.city}`} · {plural(ph.length, 'foto', 'fotos')}</span>
+                        </div>
+                        {ev.kind !== 'pool' && <Link to={`/evento/${ev.slug}`} className="btn btn-sm btn-ghost">Ver evento <ArrowRight size={14} /></Link>}
+                      </div>
+                      <PhotoGrid photos={ph} rowHeight={180} owned={owned} eventInfo={{ event_title: ev.title, event_slug: ev.slug, price_cents: ev.price_cents }}
+                        picked={picked} onPick={refine?.toggle} />
+                    </section>
+                  ))}
+                </div>
+              )}
+            </section>
+          );
+        })}
+      </div>
+      {refine && <RefineBottom refine={refine} />}
     </div>
+  );
+}
+
+// No fim da lista e preso na parte de baixo da tela enquanto ha fotos marcadas: nova busca com as novas
+// referencias, sem precisar voltar ao comeco.
+function RefineBottom({ refine }) {
+  const { seeds, pending, again, busy } = refine;
+  const label = `Fazer nova busca com ${plural(seeds.length, 'foto marcada', 'fotos marcadas')}`;
+  return (
+    <>
+      <div className="refine refine-end">
+        <span className="small">{seeds.length ? <>Você marcou <b>{plural(seeds.length, 'foto', 'fotos')}</b> como “Sou eu”. Elas viram novas referências do seu rosto.</> : <>Achou você em alguma foto? Toque em <b>“Sou eu?”</b> nela e faça uma nova busca com as novas referências.</>}</span>
+        <button className="btn btn-accent" disabled={busy || !pending} onClick={again}><RefreshCw size={16} /> {pending ? label : 'Fazer nova busca com as novas referências'}</button>
+      </div>
+      {pending && (
+        <div className="refine-bar" role="region" aria-label="Nova busca com as fotos marcadas">
+          <span className="small"><b>{plural(seeds.length, 'foto marcada', 'fotos marcadas')}</b> como “Sou eu”</span>
+          <button className="btn btn-sm btn-accent" disabled={busy} onClick={again}><RefreshCw size={15} /> {busy ? 'Buscando…' : 'Buscar de novo'}</button>
+        </div>
+      )}
+    </>
   );
 }
 
