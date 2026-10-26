@@ -1,15 +1,19 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Camera, ImagePlus, ScanFace, ShieldCheck, X, SwitchCamera, UserPlus, Trash2, Search } from 'lucide-react';
-import { fileToCanvas, selfieDescriptor, selfieStore } from '../lib/faces.js';
+import { fileToCanvas, selfieDescriptor, selfieStore, liveSelfie, STEP_TEXT } from '../lib/faces.js';
 
-// Captura a selfie (camera ou arquivo), gera o codigo do rosto no servidor (a foto nao e guardada) e entrega ao pai.
-// onSelfie({ descriptor, preview }) e chamado quando ha selfie pronta. Por padrao a selfie vale so para esta busca
-// (troca facil para buscar um amigo); com "Lembrar esta selfie" ela fica na aba para outros anos e eventos.
-export default function SelfieSearch({ onSelfie, title = 'Encontre suas fotos com uma selfie', subtitle, scopeNote, busy, consentText, actionLabel = 'Buscar minhas fotos', readyTitle = 'Sua selfie está pronta', allowRemember = true }) {
-  const [selfie, setSelfie] = useState(() => (allowRemember ? selfieStore.get() : null));
-  const [remember, setRemember] = useState(() => allowRemember && !!selfieStore.get());
-  const [consent, setConsent] = useState(() => allowRemember && !!selfieStore.get());
+// Selfie ao vivo pela camera (prova de vida: a pessoa vira o rosto quando pedimos) ou, so em eventos particulares
+// (allowPhoto), uma foto enviada. O rosto vira codigo no servidor e as imagens sao descartadas.
+// onSelfie({ token | descriptor, preview }) e chamado quando ha selfie pronta. Por padrao a selfie vale so para esta
+// busca (troca facil para buscar um amigo); com "Lembrar esta selfie" ela fica na aba para outros anos e eventos.
+const usable = (s, allowPhoto) => !!s && ((s.token && (s.exp || 0) > Date.now()) || (allowPhoto && s.descriptor));
+export default function SelfieSearch({ onSelfie, title = 'Encontre suas fotos com uma selfie', subtitle, scopeNote, busy, consentText, actionLabel = 'Buscar minhas fotos', readyTitle = 'Sua selfie está pronta', allowRemember = true, allowPhoto = false }) {
+  const stored = allowRemember && usable(selfieStore.get(), allowPhoto) ? selfieStore.get() : null;
+  const [selfie, setSelfie] = useState(stored);
+  const [remember, setRemember] = useState(!!stored);
+  const [consent, setConsent] = useState(!!stored);
+  const [step, setStep] = useState(null); // passo da selfie ao vivo em andamento
   const [mode, setMode] = useState('idle'); // idle | camera | working
   const [status, setStatus] = useState('');
   const [error, setError] = useState('');
@@ -22,8 +26,9 @@ export default function SelfieSearch({ onSelfie, title = 'Encontre suas fotos co
     if (!allowRemember) return undefined;
     const sync = () => {
       const s = selfieStore.get();
-      setRemember(!!s);
-      if (s) setSelfie(s);
+      const ok = usable(s, allowPhoto);
+      setRemember(ok);
+      if (ok) setSelfie(s);
     };
     window.addEventListener('tef-selfie', sync);
     return () => window.removeEventListener('tef-selfie', sync);
@@ -73,18 +78,25 @@ export default function SelfieSearch({ onSelfie, title = 'Encontre suas fotos co
         }
       }, 30);
     } catch {
-      setError('Não foi possível abrir a câmera. Você pode enviar uma foto da galeria.');
+      setError(allowPhoto ? 'Não foi possível abrir a câmera. Você pode enviar uma foto da galeria.' : 'Não foi possível abrir a câmera. A busca no acervo precisa da selfie ao vivo: libere a câmera para este site ou use o celular.');
     }
   }
 
-  async function capture() {
-    const v = videoRef.current;
-    const canvas = document.createElement('canvas');
-    canvas.width = v.videoWidth;
-    canvas.height = v.videoHeight;
-    canvas.getContext('2d').drawImage(v, 0, 0);
-    stopCamera();
-    await process(canvas);
+  // Selfie ao vivo: segue os movimentos pedidos pelo servidor e captura os quadros sozinha.
+  async function captureLive() {
+    setError('');
+    try {
+      const s = await liveSelfie(videoRef.current, (st) => setStep(st));
+      stopCamera();
+      setStep(null);
+      if (remember) selfieStore.set(s);
+      setSelfie(s);
+      setMode('idle');
+      onSelfie?.(s);
+    } catch (err) {
+      setStep(null);
+      setError(err.status === 429 ? 'Muitas tentativas seguidas. Espere um minuto e tente de novo.' : err.message || 'Não conseguimos confirmar a selfie. Tente de novo.');
+    }
   }
 
   async function onFile(e) {
@@ -138,9 +150,13 @@ export default function SelfieSearch({ onSelfie, title = 'Encontre suas fotos co
 
       {mode === 'camera' && (
         <div className="stack" style={{ alignItems: 'center' }}>
-          <video ref={videoRef} className="selfie-video" playsInline muted style={facing === 'environment' ? { transform: 'none' } : undefined} />
+          <div className="live-wrap">
+            <video ref={videoRef} className="selfie-video" playsInline muted style={facing === 'environment' ? { transform: 'none' } : undefined} />
+            {step && <div className="live-step">{step === 'sending' ? 'Conferindo…' : STEP_TEXT[step]}</div>}
+          </div>
+          {!step && <p className="small" style={{ color: 'rgba(255,255,255,.75)', textAlign: 'center', maxWidth: 420 }}>Selfie ao vivo: vamos pedir para você olhar para a câmera e virar o rosto para os lados. Leva uns 6 segundos.</p>}
           <div className="row">
-            <button className="btn btn-accent btn-lg" onClick={capture}><Camera size={19} /> Tirar selfie</button>
+            <button className="btn btn-accent btn-lg" disabled={!!step} onClick={captureLive}><Camera size={19} /> {step ? 'Gravando…' : 'Começar'}</button>
             <button className="icon-btn" style={{ color: '#fff' }} aria-label="Trocar câmera" onClick={() => {
               const nf = facing === 'user' ? 'environment' : 'user';
               setFacing(nf);
@@ -157,7 +173,7 @@ export default function SelfieSearch({ onSelfie, title = 'Encontre suas fotos co
             <label className="check">
               <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} />
               <span>
-                {consentText || 'Autorizo usar minha selfie para encontrar minhas fotos. Ela é analisada no servidor do site só para gerar o código do rosto e é descartada na hora, sem ser guardada.'}{' '}
+                {consentText || 'Autorizo usar minha selfie ao vivo (alguns quadros da câmera) para encontrar minhas fotos. Ela é analisada no servidor do site só para gerar o código do rosto e é descartada na hora, sem ser guardada.'}{' '}
                 <Link to="/privacidade" style={{ textDecoration: 'underline' }}>Saiba mais</Link>
               </span>
             </label>
@@ -180,11 +196,13 @@ export default function SelfieSearch({ onSelfie, title = 'Encontre suas fotos co
             ) : (
               <>
                 <button className="btn btn-accent" disabled={!consent || working} onClick={() => openCamera()}>
-                  <Camera size={18} /> Tirar selfie
+                  <Camera size={18} /> Selfie ao vivo
                 </button>
-                <button className="btn btn-ghost" style={{ color: '#fff', borderColor: 'rgba(255,255,255,.25)' }} disabled={!consent || working} onClick={() => fileRef.current?.click()}>
-                  <ImagePlus size={18} /> Enviar foto
-                </button>
+                {allowPhoto && (
+                  <button className="btn btn-ghost" style={{ color: '#fff', borderColor: 'rgba(255,255,255,.25)' }} disabled={!consent || working} onClick={() => fileRef.current?.click()}>
+                    <ImagePlus size={18} /> Enviar foto
+                  </button>
+                )}
               </>
             )}
             <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp" hidden onChange={onFile} />
@@ -201,7 +219,7 @@ export default function SelfieSearch({ onSelfie, title = 'Encontre suas fotos co
       {mode === 'working' && <div className="row small" style={{ color: 'rgba(255,255,255,.8)' }}><div className="spinner" /> {status}</div>}
       {error && <div className="alert alert-bad">{error}</div>}
       <div className="row tiny" style={{ color: 'rgba(255,255,255,.5)', gap: 6 }}>
-        <ShieldCheck size={14} /> Sua selfie não é guardada: vira um código numérico e a foto é descartada (LGPD).
+        <ShieldCheck size={14} /> {allowPhoto ? 'Evento particular: vale selfie ao vivo ou foto.' : 'Selfie ao vivo para proteger quem aparece nas fotos: ninguém busca você com uma foto sua.'} Nada é guardado: vira um código numérico e as imagens são descartadas (LGPD).
       </div>
     </div>
   );

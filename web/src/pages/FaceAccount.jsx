@@ -123,7 +123,7 @@ export function FacePrivacy() {
   const register = async (selfie) => {
     setBusy(true);
     try {
-      await api('/me/face', { method: 'POST', body: { descriptors: [selfie.descriptor], consent: true } });
+      await api('/me/face', { method: 'POST', body: { token: selfie.token, consent: true } });
       toast('Rosto cadastrado! Procurando você nas fotos…');
       setChanging(false);
       reload();

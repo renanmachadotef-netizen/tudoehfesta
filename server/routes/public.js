@@ -8,12 +8,15 @@ import { searchFaces, seedDescriptors, DIM, DEFAULT_THRESHOLD, THRESHOLD_RANGE }
 import { learnedFor, rememberMarks } from '../learn.js';
 import multer from 'multer';
 import { detectFacesOnServer } from '../facepool.js';
+import { LIVE_REQUIRED, newChallenge, verifyLive, readLiveToken } from '../liveness.js';
 
 // Selfie: fica so na memoria durante a analise (nunca vai para o disco) e e descartada em seguida.
 const selfieUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 8 * 1024 * 1024, files: 1 } });
+const liveUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 3 * 1024 * 1024, files: 12 } });
 import { previewUrl, thumbUrl } from '../storage.js';
 import { paymentOptions } from '../payments.js';
 import { fail, rateLimit } from '../util.js';
+import { activity } from '../activity.js';
 
 const r = Router();
 
@@ -254,7 +257,25 @@ r.get('/photos', async (req, res) => {
 });
 
 // Busca facial. Recebe so os vetores calculados no navegador: a selfie nunca sai do aparelho.
-// Selfie -> codigo do rosto (o maior rosto da foto). Mesmo motor das fotos do acervo, entao os codigos batem.
+// Selfie ao vivo: 1) o servidor sorteia os movimentos; 2) a camera manda os quadros e o servidor confere.
+r.get('/faces/live/start', rateLimit('faces-live-start', 30, 60_000), (_req, res) => res.json(newChallenge()));
+r.post('/faces/live', rateLimit('faces-live', 12, 60_000), liveUpload.array('frames', 12), async (req, res) => {
+  const files = req.files || [];
+  if (!files.length) fail(400, 'A selfie ficou incompleta. Tente de novo.');
+  const analyses = await Promise.all(files.map((f) => detectFacesOnServer(f.buffer)));
+  for (const f of files) f.buffer = null; // os quadros nao sao guardados
+  const r = verifyLive(req.body?.challenge, analyses);
+  // so o motivo vai para o painel (calibrar a prova de vida); nenhuma imagem e guardada
+  if (!r.ok) {
+    activity('selfie', `Selfie ao vivo recusada: ${r.reason}`);
+    return res.status(422).json({ error: r.reason });
+  }
+  activity('selfie', 'Selfie ao vivo confirmada');
+  res.json({ token: r.token, frame: r.frontIndex, box: r.box });
+});
+
+// Foto enviada -> codigo do rosto (o maior rosto da foto). So vale para eventos particulares (com senha ou so por
+// link); no acervo e nos eventos abertos a busca exige a selfie ao vivo.
 r.post('/faces/embed', rateLimit('faces-embed', 30, 60_000), selfieUpload.single('file'), async (req, res) => {
   if (!req.file) fail(400, 'Envie uma selfie.');
   const faces = await detectFacesOnServer(req.file.buffer);
@@ -265,18 +286,26 @@ r.post('/faces/embed', rateLimit('faces-embed', 30, 60_000), selfieUpload.single
 });
 
 r.post('/faces/search', rateLimit('faces', 40, 60_000), async (req, res) => {
-  const descriptors = (req.body?.descriptors || []).slice(0, 3);
-  if (!descriptors.length || descriptors.some((d) => !Array.isArray(d) || d.length !== DIM)) {
-    fail(400, 'Não foi possível ler o rosto da selfie. Tente outra foto, de frente e com boa luz.');
-  }
-  const { scope = 'all', year, event } = req.body;
+  const { scope = 'all', year, event } = req.body || {};
   let key = 'all';
+  let privateEvent = false;
   if (scope === 'year' && year) key = `year:${Number(year)}`;
   if (scope === 'event' && event) {
     const ev = await db.one(`select id, visibility from events where slug = $1 and status = 'published'`, [String(event)]);
     if (!ev) fail(404, 'Evento não encontrado.');
     if (ev.visibility === 'password' && !(await unlocked(req, ev.id))) fail(403, 'Digite a senha do evento primeiro.');
     key = `event:${ev.id}`;
+    privateEvent = ev.visibility === 'password' || ev.visibility === 'unlisted';
+  }
+  // Rosto da busca: do passe da selfie ao vivo ou, so em evento particular, de uma foto enviada.
+  let descriptors = req.body?.token ? readLiveToken(req.body.token) : null;
+  if (req.body?.token && !descriptors) fail(401, 'Sua selfie expirou. Faça a selfie ao vivo de novo.');
+  if (!descriptors) {
+    if (LIVE_REQUIRED && !privateEvent) fail(403, 'Para buscar no acervo e nos eventos abertos, faça a selfie ao vivo pela câmera.');
+    descriptors = (req.body?.descriptors || []).slice(0, 3);
+  }
+  if (!descriptors.length || descriptors.some((d) => !Array.isArray(d) || d.length !== DIM)) {
+    fail(400, 'Não foi possível ler o rosto da selfie. Tente outra foto, de frente e com boa luz.');
   }
   const threshold = Math.min(Math.max(Number(req.body.threshold) || DEFAULT_THRESHOLD, THRESHOLD_RANGE[0]), THRESHOLD_RANGE[1]);
   // Fotos marcadas como "sou eu" entram como referencias extras (ate 12).

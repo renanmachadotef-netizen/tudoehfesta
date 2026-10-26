@@ -162,8 +162,19 @@ export async function analyze(input) {
     let norm = 0;
     for (let i = 0; i < emb.length; i++) norm += emb[i] * emb[i];
     norm = Math.sqrt(norm) || 1;
+    // giro da cabeca: deslocamento do nariz em relacao ao meio dos olhos, medido com o rosto "endireitado" pela
+    // linha dos olhos (inclinar a cabeca ou uma foto no proprio plano nao conta como virar o rosto)
+    const roll = Math.atan2(kps[1][1] - kps[0][1], kps[1][0] - kps[0][0]);
+    const eyes = Math.hypot(kps[1][0] - kps[0][0], kps[1][1] - kps[0][1]) || 1;
+    const mx = (kps[0][0] + kps[1][0]) / 2, my = (kps[0][1] + kps[1][1]) / 2;
+    const yaw = ((kps[2][0] - mx) * Math.cos(roll) + (kps[2][1] - my) * Math.sin(roll)) / eyes;
     result.push({
       d: Array.from(emb, (v) => Math.round((v / norm) * 1e5) / 1e5),
+      yaw: +yaw.toFixed(3),
+      roll: +roll.toFixed(3),
+      // distancia entre os olhos / distancia olhos-boca: encolhe quando a cabeca vira de verdade (perspectiva);
+      // numa foto plana girada no proprio plano nao muda
+      ratio: +(eyes / (Math.hypot((kps[3][0] + kps[4][0]) / 2 - mx, (kps[3][1] + kps[4][1]) / 2 - my) || 1)).toFixed(3),
       box: { x: +Math.max(0, f.x / w).toFixed(4), y: +Math.max(0, f.y / h).toFixed(4), w: +(f.w / w).toFixed(4), h: +(f.h / h).toFixed(4) },
       score: +f.score.toFixed(3),
     });

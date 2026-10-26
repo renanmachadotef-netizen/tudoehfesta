@@ -537,3 +537,8 @@ details.faq p { margin-top: 10px; color: var(--ink-2); }
 .kpi-btn { text-align: left; font: inherit; color: inherit; cursor: pointer; }
 .kpi-btn:hover { border-color: var(--accent); }
 .ignored-box { padding: 14px 16px; border-radius: var(--radius); background: var(--surface); }
+
+/* Selfie ao vivo */
+.live-wrap { position: relative; width: 100%; max-width: 420px; }
+.live-wrap .selfie-video { width: 100%; }
+.live-step { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); width: calc(100% - 28px); text-align: center; padding: 10px 14px; border-radius: 10px; background: rgba(0,0,0,.72); color: #fff; font-weight: 700; font-size: 17px; }

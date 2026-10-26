@@ -136,7 +136,7 @@ export default function EventPage() {
   const search = async (selfie) => {
     setSearching(true);
     try {
-      const d = await api('/faces/search', { method: 'POST', body: { descriptors: [selfie.descriptor], scope: 'event', event: slug } });
+      const d = await api('/faces/search', { method: 'POST', body: { ...(selfie.token ? { token: selfie.token } : { descriptors: [selfie.descriptor] }), scope: 'event', event: slug } });
       setMine(d.photos);
       setTab('minhas');
     } catch (err) {
@@ -212,7 +212,7 @@ export default function EventPage() {
       )}
       {event.photo_count > 0 && (
         event.face_count > 0 ? (
-          <SelfieSearch onSelfie={search} busy={searching} scopeNote="Procurando só nas fotos deste evento" title="Ache suas fotos neste evento" subtitle={event.hide_gallery ? 'As fotos deste evento são protegidas. Tire uma selfie para ver as suas.' : 'Tire uma selfie e mostramos só as fotos em que você aparece neste evento.'} />
+          <SelfieSearch onSelfie={search} busy={searching} allowPhoto={event.visibility === 'password' || event.visibility === 'unlisted'} scopeNote="Procurando só nas fotos deste evento" title="Ache suas fotos neste evento" subtitle={event.hide_gallery ? 'As fotos deste evento são protegidas. Tire uma selfie para ver as suas.' : 'Tire uma selfie e mostramos só as fotos em que você aparece neste evento.'} />
         ) : (
           <div className="alert">Este evento ainda não tem reconhecimento facial: navegue pelas fotos abaixo.</div>
         )

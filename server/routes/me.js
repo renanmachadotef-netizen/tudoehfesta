@@ -3,6 +3,7 @@ import { Router } from 'express';
 import { db } from '../db.js';
 import { requireUser } from '../auth.js';
 import { encodeDescriptor, FACE_MODEL } from '../faces.js';
+import { LIVE_REQUIRED, readLiveToken } from '../liveness.js';
 import { photoOut } from './public.js';
 import { fail, rateLimit } from '../util.js';
 import { activity } from '../activity.js';
@@ -92,7 +93,11 @@ r.delete('/me/face/refs/:id', async (req, res) => {
 
 r.post('/me/face', rateLimit('face-register', 10, 60_000), async (req, res) => {
   if (req.body?.consent !== true) fail(400, 'É preciso autorizar o uso do seu rosto para ativar o monitoramento.');
-  const descs = (req.body?.descriptors || []).slice(0, 3).map(encodeDescriptor).filter(Boolean);
+  // So com a selfie ao vivo (ninguem cadastra o rosto de outra pessoa a partir de uma foto dela).
+  const live = req.body?.token ? readLiveToken(req.body.token) : null;
+  if (req.body?.token && !live) fail(401, 'Sua selfie expirou. Faça a selfie ao vivo de novo.');
+  if (!live && LIVE_REQUIRED) fail(403, 'Para cadastrar seu rosto, faça a selfie ao vivo pela câmera.');
+  const descs = (live || req.body?.descriptors || []).slice(0, 3).map(encodeDescriptor).filter(Boolean);
   if (!descs.length) fail(400, 'Não conseguimos ler o rosto da selfie. Tente outra, de frente e com boa luz.');
   await db.tx(async (t) => {
     // Selfie nova: as referencias aprendidas sao refeitas a partir dela (compras e fotos marcadas).

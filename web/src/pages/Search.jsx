@@ -99,7 +99,7 @@ export function useFaceSearch(scopeBody) {
   const search = async (sf, list = seeds) => {
     setBusy(true);
     try {
-      const d = await api('/faces/search', { method: 'POST', body: { descriptors: [sf.descriptor], seeds: list.map((s) => s.id), ...scopeBody } });
+      const d = await api('/faces/search', { method: 'POST', body: { ...(sf.token ? { token: sf.token } : { descriptors: [sf.descriptor] }), seeds: list.map((s) => s.id), ...scopeBody } });
       // Foto marcada cujo rosto nao confere com a selfie (nem com outra marcada) fica de fora.
       const used = new Set(d.seeds || []);
       const kept = list.filter((s) => used.has(s.id));
