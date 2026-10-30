@@ -75,7 +75,7 @@ async function facesOne(p) {
   count('faces', faces.length);
   await db.tx(async (t) => {
     const saved = await saveFaces(t, p, faces);
-    await t.query('update photos set needs_faces = false, faces_count = $2 where id = $1', [p.id, saved]);
+    await t.query('update photos set needs_faces = false, faces_redo = false, faces_count = $2 where id = $1', [p.id, saved]);
   });
   invalidateFaces();
 }
@@ -134,7 +134,7 @@ async function autoPublish() {
     `update events e set status = 'published', published_at = now(), auto_publish = false
       where e.auto_publish and e.status = 'draft'
         and exists (select 1 from photos p where p.event_id = e.id)
-        and not exists (select 1 from photos p where p.event_id = e.id and (p.needs_render or (p.needs_faces and ${BLUR_WATCH})))
+        and not exists (select 1 from photos p where p.event_id = e.id and (p.needs_render or (p.needs_faces and not p.faces_redo and ${BLUR_WATCH})))
         -- Evento cadastrado: espera a pasta dele terminar. Acervo: libera cada pasta assim que as fotos dela
         -- estao prontas (a pasta geral pode levar horas); so a que esta sendo importada agora espera.
         and (case when e.kind = 'pool'

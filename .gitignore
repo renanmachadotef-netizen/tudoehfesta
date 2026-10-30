@@ -5,3 +5,4 @@ web/public/models
 .env
 *.local
 .tmp
+server/models/buffalo_l

@@ -279,7 +279,7 @@ export default function Live() {
 
           <div className="card stack" style={{ gap: 8 }}>
             <h3 className="row" style={{ gap: 8 }}><Server size={17} /> Servidor</h3>
-            <span className="small">Ligado há {uptime(d.server.uptime_s)} · memória {Math.round(d.server.rss / 1024 ** 2)} MB · carga {d.server.load[0].toFixed(2)} ({d.server.cpus} CPUs) · reconhecimento facial em {d.server.face_threads} thread(s)</span>
+            <span className="small">Ligado há {uptime(d.server.uptime_s)} · memória {Math.round(d.server.rss / 1024 ** 2)} MB · carga {d.server.load[0].toFixed(2)} ({d.server.cpus} CPUs) · reconhecimento facial {d.server.face_model === 'sface' ? 'SFace' : 'buffalo_l (InsightFace)'} em {d.server.face_threads} thread(s)</span>
             {disk && (
               <>
                 <div className="live-bar"><i style={{ width: `${Math.round(((disk.total - disk.free) / disk.total) * 100)}%`, background: disk.free / disk.total < 0.15 ? 'var(--bad)' : undefined }} /></div>

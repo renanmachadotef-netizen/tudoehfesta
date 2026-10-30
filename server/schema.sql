@@ -401,3 +401,7 @@ create index if not exists users_blur_idx on users (id) where blur_me;
 
 -- v22: limite ajustado ao rosto cadastrado (medido na varredura completa; criancas ficam com limite menor).
 alter table users add column if not exists face_limit real;
+
+-- v23: rostos refeitos por troca de modelo (a foto ja foi checada antes e a previa ja tem os borroes): a foto
+-- continua aparecendo enquanto espera, mesmo com cliente pedindo borrao.
+alter table photos add column if not exists faces_redo boolean not null default false;

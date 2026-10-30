@@ -7,7 +7,7 @@ import { getSetting, priceCart, effectivePrice } from '../pricing.js';
 import { searchFaces, seedDescriptors, DIM, DEFAULT_THRESHOLD, THRESHOLD_RANGE } from '../faces.js';
 import { learnedFor, rememberMarks } from '../learn.js';
 import multer from 'multer';
-import { detectFacesOnServer } from '../facepool.js';
+import { detectFacesOnServer, embedFaceOnServer } from '../facepool.js';
 import { LIVE_REQUIRED, newChallenge, verifyLive, readLiveToken } from '../liveness.js';
 
 // Selfie: fica so na memoria durante a analise (nunca vai para o disco) e e descartada em seguida.
@@ -38,7 +38,7 @@ export const EVENT_JOINS = `
     select p.id, p.key from photos p
      where p.key is not null and not p.hidden and p.id = coalesce(e.cover_photo_id,
        case when e.hide_gallery then null else (select min(p2.id) from photos p2 where p2.event_id = e.id and p2.key is not null and not p2.hidden
-         and (not p2.needs_faces or not exists (select 1 from users bu where bu.blur_me))) end)
+         and (not p2.needs_faces or p2.faces_redo or not exists (select 1 from users bu where bu.blur_me))) end)
   ) cv on true`;
 
 // Cartao publico: preco que vale hoje (evento recente = preco do evento; antigo ou acervo = tabela do acervo).
@@ -237,7 +237,7 @@ r.get('/events/:slug/photos', async (req, res) => {
     `select id, event_id, width, height, key from photos where event_id = $1 and key is not null and not hidden
        and ($4::int is null or extract(hour from taken_at) = $4)
        -- se algum cliente pediu borrao, a foto espera a checagem de rosto antes de aparecer
-       and (not needs_faces or not exists (select 1 from users bu where bu.blur_me))
+       and (not needs_faces or faces_redo or not exists (select 1 from users bu where bu.blur_me))
       order by ${hour == null ? 'sort_key nulls last, id' : 'taken_at, id'} limit $2 offset $3`,
     [ev.id, limit + 1, offset, hour],
   );
@@ -262,9 +262,14 @@ r.get('/faces/live/start', rateLimit('faces-live-start', 30, 60_000), (_req, res
 r.post('/faces/live', rateLimit('faces-live', 12, 60_000), liveUpload.array('frames', 12), async (req, res) => {
   const files = req.files || [];
   if (!files.length) fail(400, 'A selfie ficou incompleta. Tente de novo.');
-  const analyses = await Promise.all(files.map((f) => detectFacesOnServer(f.buffer)));
-  for (const f of files) f.buffer = null; // os quadros nao sao guardados
-  const r = verifyLive(req.body?.challenge, analyses);
+  // Rostos de perto: a deteccao roda em 640 px; o codigo so sai dos quadros que provam a selfie.
+  let r;
+  try {
+    const analyses = await Promise.all(files.map((f) => detectFacesOnServer(f.buffer, { urgent: true, embed: false, maxSide: 640 })));
+    r = await verifyLive(req.body?.challenge, analyses, (i, kps) => embedFaceOnServer(files[i].buffer, kps));
+  } finally {
+    for (const f of files) f.buffer = null; // os quadros nao sao guardados
+  }
   // so o motivo vai para o painel (calibrar a prova de vida); nenhuma imagem e guardada
   if (!r.ok) {
     activity('selfie', `Selfie ao vivo recusada: ${r.reason}`);
@@ -278,7 +283,7 @@ r.post('/faces/live', rateLimit('faces-live', 12, 60_000), liveUpload.array('fra
 // link); no acervo e nos eventos abertos a busca exige a selfie ao vivo.
 r.post('/faces/embed', rateLimit('faces-embed', 30, 60_000), selfieUpload.single('file'), async (req, res) => {
   if (!req.file) fail(400, 'Envie uma selfie.');
-  const faces = await detectFacesOnServer(req.file.buffer);
+  const faces = await detectFacesOnServer(req.file.buffer, { urgent: true });
   req.file.buffer = null;
   if (!faces.length) return res.json({ faces: 0 });
   const best = faces.sort((a, b) => b.box.w * b.box.h - a.box.w * a.box.h)[0];

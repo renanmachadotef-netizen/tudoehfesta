@@ -5,3 +5,5 @@ data
 web/public/models
 .env
 *.local
+server/models/buffalo_l
+.tmp

@@ -2,20 +2,25 @@ import { db, toBuffer } from './db.js';
 import { getSetting, setSetting } from './pricing.js';
 import { activity } from './activity.js';
 
-// Busca facial por forca bruta em memoria. Modelo SFace (OpenCV): cada rosto = 128 numeros normalizados,
-// guardados com 1 byte cada (valor x SCALE + 128). 1 milhao de rostos = ~128 MB e ~0,3 s por busca.
+// Busca facial por forca bruta em memoria. Cada rosto = DIM numeros normalizados (512 no buffalo_l, 128 no
+// SFace), guardados com 1 byte cada (valor x SCALE + 128). 1 milhao de rostos buffalo_l = ~512 MB.
+import { FACE_MODEL, DIM } from './face-model.js';
+export { FACE_MODEL, DIM };
 
-export const FACE_MODEL = 'sface';
-export const DIM = 128;
-const SCALE = 250;
-// Distancia euclidiana entre codigos normalizados (0 a 2). Medido com rostos de varios tamanhos: a mesma
-// pessoa fica ate ~0,75; pessoas diferentes a partir de ~1,2. Alem do limite fixo, a busca usa um limite
-// ajustado a cada selfie (ver searchFaces), para grupos de rostos muito parecidos entre si (criancas).
-export const DEFAULT_THRESHOLD = 1; // busca e "Encontradas para voce"
-export const STRICT_THRESHOLD = 0.9; // borrar e aprender referencias (mais rigoroso)
+// Distancia euclidiana entre codigos normalizados (0 a 2). Alem do limite fixo, a busca usa um limite ajustado
+// a cada selfie (ver searchFaces), para grupos de rostos muito parecidos entre si (criancas).
+//   buffalo_l, medido com rostos de 30 a 75 px: a mesma pessoa fica ate ~0,7; pessoas diferentes a partir de ~1,28.
+//   SFace: a mesma pessoa ate ~0,75; pessoas diferentes a partir de ~1,18.
+const TUNING = {
+  buffalo_l: { scale: 500, threshold: 1.1, strict: 1, margin: 0.15, range: [0.85, 1.2] },
+  sface: { scale: 250, threshold: 1, strict: 0.9, margin: 0.22, range: [0.7, 1.1] },
+}[FACE_MODEL];
+const SCALE = TUNING.scale;
+export const DEFAULT_THRESHOLD = TUNING.threshold; // busca e "Encontradas para voce"
+export const STRICT_THRESHOLD = TUNING.strict; // borrar e aprender referencias (mais rigoroso)
 export const CROWD_RANK = 1000; // o "aglomerado" de rostos parecidos com a selfie: o milesimo rosto mais perto
-export const CROWD_MARGIN = 0.22; // so vale o que estiver pelo menos isso mais perto que o aglomerado
-export const THRESHOLD_RANGE = [0.7, 1.1];
+export const CROWD_MARGIN = TUNING.margin; // so vale o que estiver pelo menos isso mais perto que o aglomerado
+export const THRESHOLD_RANGE = TUNING.range;
 export const MAX_FACES = 80;
 
 let version = 0;
@@ -30,7 +35,7 @@ export function invalidateFaces() {
 // serve no modelo novo e a selfie nunca e guardada). O borrao de quem pediu continua (passa para o rosto novo).
 export async function migrateFaceModel() {
   if ((await getSetting('face_model', null)) === FACE_MODEL) return;
-  const photos = await db.query(`update photos set needs_faces = true where key is not null and original_path <> '' and not needs_faces`);
+  const photos = await db.query(`update photos set needs_faces = true, faces_redo = true where key is not null and original_path <> '' and not needs_faces`);
   const users = await db.query('update users set face_update_needed = true where id in (select user_id from user_faces where model <> $1)', [FACE_MODEL]);
   await db.query('delete from user_faces where model <> $1', [FACE_MODEL]);
   await setSetting('face_model', FACE_MODEL);

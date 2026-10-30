@@ -4,12 +4,12 @@ import { fileURLToPath } from 'node:url';
 import { Worker } from 'node:worker_threads';
 
 // Reconhecimento facial no servidor em varias threads (ver face-worker.mjs). Cada foto leva alguns segundos
-// de CPU e cada thread usa ~300 MB; com N threads, N fotos sao analisadas ao mesmo tempo.
+// de CPU e cada thread usa ~600 MB (buffalo_l); com N threads, N fotos sao analisadas ao mesmo tempo.
 // FACE_THREADS fixa o numero; sem ele: metade dos nucleos (o resto fica para o site e a importacao),
 // cabendo na memoria (deixa 1,5 GB para o resto), ate 4.
 const here = path.dirname(fileURLToPath(import.meta.url));
 const memory = process.constrainedMemory?.() || os.totalmem();
-const byMemory = Math.floor((memory - 1.5 * 2 ** 30) / (300 * 2 ** 20));
+const byMemory = Math.floor((memory - 1.5 * 2 ** 30) / (600 * 2 ** 20));
 export const FACE_THREADS = Math.max(1, Math.min(8, Number(process.env.FACE_THREADS) || Math.min(4, Math.floor(os.cpus().length / 2), byMemory)));
 const workers = [];
 const queue = [];
@@ -34,21 +34,41 @@ function spawn() {
   return w;
 }
 
+function send(w, job) {
+  w.jobs.set(job.id, job);
+  w.postMessage({ id: job.id, file: job.file, opts: job.opts, kps: job.kps });
+}
+
 function next() {
   while (queue.length) {
     let w = workers.find((x) => x.jobs.size === 0);
     if (!w && workers.length < FACE_THREADS) w = spawn();
     if (!w) return;
-    const job = queue.shift();
-    w.jobs.set(job.id, job);
-    w.postMessage({ id: job.id, file: job.file });
+    send(w, queue.shift());
   }
 }
 
-// -> [{ d: number[128], box: {x,y,w,h} (fracoes), score }]
-export function detectFacesOnServer(file) {
+// Selfie (cliente esperando): vai direto para a thread menos ocupada, mesmo que ela esteja no meio de uma foto
+// do reprocessamento. As duas dividem a CPU; a selfie nao fica na fila atras das fotos.
+function run(job, urgent) {
   return new Promise((resolve, reject) => {
-    queue.push({ id: ++seq, file, resolve, reject });
-    next();
+    Object.assign(job, { id: ++seq, resolve, reject });
+    if (!urgent) {
+      queue.push(job);
+      return next();
+    }
+    const idle = workers.find((x) => x.jobs.size === 0);
+    send(idle || (workers.length < FACE_THREADS ? spawn() : workers.reduce((a, b) => (b.jobs.size < a.jobs.size ? b : a))), job);
   });
+}
+
+// -> [{ d: number[DIM], yaw, roll, ratio, kps, box: {x,y,w,h} (fracoes), score }]
+// opts.urgent: cliente esperando; opts.maxSide / opts.embed: ver analyze em face-engine.mjs
+export function detectFacesOnServer(file, { urgent = false, ...opts } = {}) {
+  return run({ file, opts }, urgent);
+}
+
+// Codigo do rosto nos pontos ja achados (kps em fracoes da imagem), sem detectar de novo. Sempre urgente.
+export function embedFaceOnServer(file, kps) {
+  return run({ file, kps }, true);
 }
