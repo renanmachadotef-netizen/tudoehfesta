@@ -671,3 +671,16 @@ details.faq summary { font-weight: 550; }
 .selfie-box .muted, .selfie-box small { color: var(--muted); }
 .refine { box-shadow: none; border: 1px solid var(--line); border-left-width: 1px; }
 .selfie-box .face-ring > div { background: var(--paper); }
+
+/* Início enxuto: frase no cabeçalho, busca perto do topo, atalhos baixos */
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.header-tagline { margin-left: 18px; font-size: 15px; font-weight: 500; letter-spacing: -0.01em; color: var(--ink-2); white-space: nowrap; }
+@media (max-width: 760px) { .header-tagline { display: none; } }
+.home-hero:not(.has-image) .home-hero-inner { padding-top: 40px; padding-bottom: 32px; gap: 0; }
+.home-block { padding-top: 8px; }
+.home-cat { min-height: 76px; flex-direction: row; align-items: center; justify-content: flex-start; gap: 12px; padding: 14px 18px; }
+.home-cat > svg { margin: 0; }
+.home-cat b { margin: 0; font-size: 16px; }
+.home-cat span { margin-left: auto; font-size: 12.5px; }
+@media (max-width: 860px) { .home-cat { min-height: 64px; } }
+.home-cat span { display: none; }

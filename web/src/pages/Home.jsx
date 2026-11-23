@@ -38,19 +38,11 @@ export default function Home() {
       {/* Banner com a busca (como no site atual). O banner enviado no admin ja traz a arte; sem ele, mostramos os numeros. */}
       <section className={`home-hero${site?.hero ? ' has-image' : ''}`} style={site?.hero ? { backgroundImage: `url(${site.hero})` } : undefined}>
         <div className="container home-hero-inner">
-          <h1>{site?.tagline || 'Eternizando gerações!'}</h1>
+          <h1 className="sr-only">{site?.tagline || 'Eternizando gerações!'}</h1>
           <form className="home-search" onSubmit={searchEvents} role="search">
             <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Procure pelo evento que você participou" aria-label="Procure pelo evento que você participou" />
             <button aria-label="Buscar"><Search size={20} /></button>
           </form>
-          {!site?.hero && (
-            <div className="home-stats">
-              <span><Camera size={30} strokeWidth={1.5} /><b>{totals.photos >= 1000 ? `+${compact(totals.photos)} fotos` : 'Milhares de fotos'}</b></span>
-              <span><CalendarDays size={30} strokeWidth={1.5} /><b>Desde {since}</b></span>
-              <span><ScanFace size={30} strokeWidth={1.5} /><b>Busca por selfie</b></span>
-              <span><ShieldCheck size={30} strokeWidth={1.5} /><b>Confiança e tradição</b></span>
-            </div>
-          )}
         </div>
       </section>
 

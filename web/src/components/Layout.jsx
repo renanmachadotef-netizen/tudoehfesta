@@ -77,15 +77,12 @@ function UserMenu() {
 
 export function Header() {
   const { items } = useCart();
+  const { site } = useSite();
   return (
     <header className="header">
       <div className="container header-inner">
         <Logo />
-        <nav className="nav">
-          {QUICK_CATS.map((c) => <NavLink key={c.slug} to={c.path}>{c.label}</NavLink>)}
-          <NavLink to="/eventos" end>Todos os eventos</NavLink>
-          <NavLink to="/seja-fotografo" className="nav-extra">Venda suas fotos</NavLink>
-        </nav>
+        <span className="header-tagline">{site?.tagline || 'Eternizando gerações!'}</span>
         <div className="grow" />
         <Link to="/buscar" className="header-find">
           <ScanFace size={18} /> Achar minhas fotos
