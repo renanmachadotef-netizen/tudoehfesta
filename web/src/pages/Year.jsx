@@ -17,7 +17,6 @@ export default function YearPage() {
   return (
     <div className="container section-sm stack" style={{ gap: 28 }}>
       <div className="stack" style={{ gap: 8 }}>
-        <span className="eyebrow">Retrospectiva</span>
         <h1 style={{ fontSize: 'clamp(30px,5vw,48px)' }}>Suas fotos de {year}</h1>
         <p className="muted">{info ? `${info.photos.toLocaleString('pt-BR')} fotos em ${year}. ` : ''}Tire uma selfie e veja todas as fotos do ano em que você aparece, de uma só vez.</p>
         <span className="small muted row" style={{ gap: 6 }}><Lock size={14} /> As fotos do ano não ficam expostas: cada pessoa vê apenas as fotos em que aparece.</span>

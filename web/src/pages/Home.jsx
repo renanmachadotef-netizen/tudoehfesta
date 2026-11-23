@@ -97,17 +97,6 @@ export default function Home() {
         <EventBrowser title="Eventos recentes" subtitle="Confira os eventos mais recentes que foram fotografados." allPath="/" />
       </section>
 
-      {/* Fotografos */}
-      <section className="container">
-        <div className="home-pro">
-          <div className="stack" style={{ gap: 6 }}>
-            <h2 className="home-h2">Fotografa na região?</h2>
-            <p>Venda suas fotos aqui: o sistema reconhece os rostos e o Pix cai na sua conta a cada venda. Sem mensalidade.</p>
-          </div>
-          <Link to="/seja-fotografo" className="btn btn-lg">Quero vender minhas fotos</Link>
-        </div>
-      </section>
-
       {/* Perguntas */}
       <section className="container home-block" style={{ maxWidth: 860 }}>
         <h2 className="home-h2">Perguntas frequentes</h2>

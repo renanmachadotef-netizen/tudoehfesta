@@ -210,7 +210,6 @@ export default function SearchPage() {
   return (
     <div className="container section-sm stack" style={{ gap: 24, maxWidth: 1100 }}>
       <div className="stack" style={{ gap: 8 }}>
-        <span className="eyebrow">Reconhecimento facial</span>
         <h1 style={{ fontSize: 'clamp(28px,4vw,42px)' }}>Encontre todas as suas fotos de uma vez</h1>
         <p className="muted">Uma selfie procura você em todo o acervo ou só no ano que você escolher.</p>
       </div>

@@ -657,3 +657,17 @@ details.faq summary { font-weight: 550; }
   .home-hero:not(.has-image) .home-hero-inner { padding-top: 44px; padding-bottom: 36px; gap: 22px; }
   .home-block { padding-top: 36px; }
 }
+
+/* Demais telas do cliente (busca, ano, evento, pedido) */
+.eyebrow { font-family: var(--font); font-size: 13px; font-weight: 500; letter-spacing: 0; text-transform: none; color: var(--muted); }
+.chip { background: var(--paper); border-color: var(--line); }
+.chip:hover { border-color: var(--ink); color: var(--ink); }
+.chip.active, .chip.active:hover { background: var(--ink); color: #fff; border-color: var(--ink); }
+.chip.active em { color: rgba(255,255,255,.65); }
+.filters { box-shadow: none; border: 1px solid var(--line); }
+.filters-search:focus-within { border-color: var(--ink); }
+.selfie-box { background: var(--paper); color: var(--ink); border: 1px solid var(--line); padding: 28px; }
+.selfie-box .check { color: var(--ink-2); }
+.selfie-box .muted, .selfie-box small { color: var(--muted); }
+.refine { box-shadow: none; border: 1px solid var(--line); border-left-width: 1px; }
+.selfie-box .face-ring > div { background: var(--paper); }
