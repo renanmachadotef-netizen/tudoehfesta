@@ -575,3 +575,85 @@ details.faq p { margin-top: 10px; color: var(--ink-2); }
   .year-body { padding-left: 14px; padding-right: 14px; }
 }
 .year-marked { font-size: 12.5px; font-weight: 700; color: #8A6400; }
+
+/* ==========================================================================
+   Visual minimalista (23/11/2026) — lado do cliente.
+   Bloco de ajustes no fim do arquivo: para voltar ao visual anterior, apague
+   daqui até o fim. Só o vermelho da marca fica como destaque (botões e links).
+   ========================================================================== */
+:root {
+  --bg: #FAFAF9;
+  --surface: #F4F4F2;
+  --surface-2: #E9E9E6;
+  --line: #E7E7E4;
+  --ink: #1C1C1C;
+  --ink-2: #4B4B4B;
+  --muted: #6B6B6B;
+  --radius: 14px;
+  --radius-sm: 10px;
+  --shadow: none;
+  --shadow-hover: 0 8px 24px rgba(0, 0, 0, .07);
+}
+h1, h2, h3 { font-weight: 600; letter-spacing: -0.025em; }
+h3 { font-weight: 600; }
+.section { padding-top: 72px; padding-bottom: 72px; }
+
+/* Cabeçalho */
+.header { background: rgba(250, 250, 249, .9); }
+.header-inner { height: 68px; }
+.nav a { font-weight: 450; color: var(--ink-2); }
+.nav a:hover { background: transparent; color: var(--ink); }
+.card { border-radius: var(--radius); }
+
+/* Início: banner claro, sem degradê */
+.home-hero:not(.has-image) { background: var(--bg); color: var(--ink); min-height: 0; border-bottom: 1px solid var(--line); }
+.home-hero:not(.has-image) .home-hero-inner { padding-top: 88px; padding-bottom: 72px; gap: 32px; }
+.home-hero:not(.has-image) h1 { color: var(--ink); text-shadow: none; font-weight: 600; font-size: clamp(34px, 5.4vw, 56px); letter-spacing: -0.035em; text-wrap: balance; }
+.home-search { box-shadow: none; border: 1px solid var(--line); border-radius: 999px; height: 58px; background: #fff; transition: border-color .15s ease, box-shadow .15s ease; }
+.home-search:focus-within { border-color: var(--ink); box-shadow: 0 0 0 4px rgba(28, 28, 28, .06); }
+.home-search input { padding: 0 8px 0 26px; }
+.home-search input::placeholder { color: #8A8A8A; }
+.home-search button { width: 58px; }
+.home-hero:not(.has-image) .home-stats { margin-top: 0; gap: 40px; grid-template-columns: repeat(4, auto); }
+.home-hero:not(.has-image) .home-stats span { flex-direction: row; gap: 8px; color: var(--muted); }
+.home-hero:not(.has-image) .home-stats svg { width: 18px; height: 18px; }
+.home-hero:not(.has-image) .home-stats b { color: var(--ink-2); font-size: 13px; font-weight: 500; letter-spacing: 0; text-transform: none; }
+@media (max-width: 700px) { .home-hero:not(.has-image) .home-stats { grid-template-columns: repeat(2, auto); gap: 14px 28px; } }
+
+/* Atalhos de categoria: cartões claros; os que têm foto continuam com a foto */
+.home-block { padding-top: 56px; }
+.home-cats { gap: 14px; }
+.home-cat { box-shadow: none; border: 1px solid var(--line); min-height: 140px; }
+.home-cat:not([style]) { background: var(--paper); color: var(--ink); }
+.home-cat:not([style])::before { background: none; }
+.home-cat:not([style]) span { color: var(--muted); }
+.home-cat[style]::before { background: linear-gradient(180deg, rgba(0,0,0,0) 30%, rgba(0,0,0,.6) 100%); }
+.home-cat b { font-size: 19px; font-weight: 600; }
+.home-cat:hover { transform: none; box-shadow: var(--shadow-hover); border-color: var(--surface-2); }
+.home-cat-all { background: var(--paper); color: var(--ink); }
+.home-cat-all span { color: var(--accent); }
+
+/* Chamada da selfie e dos fotógrafos: sem barra colorida e sem bloco escuro */
+.home-selfie { border: 1px solid var(--line); border-left-width: 1px; box-shadow: none; padding: 32px 34px; }
+.home-pro { background: var(--surface); color: var(--ink); padding: 32px 34px; }
+.home-pro .home-h2 { color: var(--ink); }
+.home-pro p { color: var(--ink-2); }
+.home-pro .btn { background: var(--ink); color: #fff; }
+.home-pro .btn:hover { background: #000; }
+
+/* Cartões de evento: contorno fino em vez de sombra */
+.event-card { box-shadow: none; border: 1px solid var(--line); border-radius: var(--radius); }
+.event-card:hover { box-shadow: var(--shadow-hover); transform: none; border-color: var(--surface-2); }
+.event-title { font-weight: 550; }
+
+/* Botões e filtros mais suaves */
+.btn { font-weight: 550; }
+.btn-lg { height: 52px; border-radius: 999px; }
+.chip { font-weight: 450; }
+details.faq { padding: 20px 0; }
+details.faq summary { font-weight: 550; }
+.footer { background: var(--bg); }
+@media (max-width: 700px) {
+  .home-hero:not(.has-image) .home-hero-inner { padding-top: 44px; padding-bottom: 36px; gap: 22px; }
+  .home-block { padding-top: 36px; }
+}
