@@ -36,6 +36,11 @@ export default function SelfieSearch({ onSelfie, title = 'Encontre suas fotos co
   }, []);
 
   useEffect(() => () => stopCamera(), []);
+  useEffect(() => { // ao abrir a câmera, centraliza a imagem na tela do celular
+    if (mode !== 'camera') return undefined;
+    const t = setTimeout(() => videoRef.current?.parentElement?.scrollIntoView({ block: 'center', behavior: 'smooth' }), 80);
+    return () => clearTimeout(t);
+  }, [mode]);
   useEffect(() => { if (step) navigator.vibrate?.(step === 'sending' ? 40 : 150); }, [step]); // vibra a cada mudança de passo
 
   function stopCamera() {
