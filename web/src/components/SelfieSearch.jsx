@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Camera, ImagePlus, ScanFace, ShieldCheck, X, SwitchCamera, UserPlus, Trash2, Search } from 'lucide-react';
+import { Camera, ImagePlus, ScanFace, ShieldCheck, X, SwitchCamera, UserPlus, Trash2, Search, ArrowLeft, ArrowRight } from 'lucide-react';
 import { fileToCanvas, selfieDescriptor, selfieStore, liveSelfie, STEP_TEXT } from '../lib/faces.js';
 
 // Selfie ao vivo pela camera (prova de vida: a pessoa vira o rosto quando pedimos) ou, so em eventos particulares
@@ -36,6 +36,7 @@ export default function SelfieSearch({ onSelfie, title = 'Encontre suas fotos co
   }, []);
 
   useEffect(() => () => stopCamera(), []);
+  useEffect(() => { if (step) navigator.vibrate?.(step === 'sending' ? 40 : 150); }, [step]); // vibra a cada mudança de passo
 
   function stopCamera() {
     streamRef.current?.getTracks().forEach((t) => t.stop());
@@ -151,9 +152,11 @@ export default function SelfieSearch({ onSelfie, title = 'Encontre suas fotos co
 
       {mode === 'camera' && (
         <div className="stack" style={{ alignItems: 'center' }}>
-          <div className="live-wrap">
+          <div className={`live-wrap${step ? ` live-${step}` : ''}`}>
             <video ref={videoRef} className="selfie-video" playsInline muted style={facing === 'environment' ? { transform: 'none' } : undefined} />
-            {step && <div className="live-step">{step === 'sending' ? 'Conferindo…' : STEP_TEXT[step]}</div>}
+            {step && <div key={step} className="live-frame" aria-hidden="true" />}
+            {(step === 'left' || step === 'right') && (((step === 'left') === (facing !== 'environment')) ? <ArrowLeft className="live-arrow live-arrow-l" aria-hidden="true" /> : <ArrowRight className="live-arrow live-arrow-r" aria-hidden="true" />)}
+            {step && <div className="live-step" role="status" aria-live="assertive">{step === 'sending' ? 'Conferindo…' : STEP_TEXT[step]}</div>}
           </div>
           {!step && <p className="small muted" style={{ textAlign: 'center', maxWidth: 420 }}>Selfie ao vivo: vamos pedir para você olhar para a câmera e virar o rosto para os lados. Leva uns 6 segundos.</p>}
           <div className="row">

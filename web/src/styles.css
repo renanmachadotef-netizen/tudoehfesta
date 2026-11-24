@@ -729,3 +729,20 @@ details.faq summary { font-weight: 550; }
   .tiny, .scope-note { font-size: 13.5px; }
 }
 @media (max-width: 520px) { .filters select { padding-left: 10px; padding-right: 4px; font-size: 15px; } }
+
+/* Selfie ao vivo: cada passo tem uma moldura fluorescente de cor própria, para ver a troca sem ler */
+.live-wrap { --neon: #8a8a8a; }
+.live-wrap.live-front { --neon: #39ff14; }
+.live-wrap.live-left { --neon: #00e5ff; }
+.live-wrap.live-right { --neon: #ff2bd6; }
+.live-wrap.live-sending { --neon: #ffee00; }
+.live-frame { position: absolute; inset: 0; border-radius: var(--radius); border: 8px solid var(--neon); pointer-events: none;
+  box-shadow: 0 0 26px 4px var(--neon), inset 0 0 26px 2px var(--neon); animation: live-flash .9s ease-out; }
+@keyframes live-flash { 0% { opacity: 0; transform: scale(1.04); } 25% { opacity: 1; transform: scale(1); box-shadow: 0 0 60px 14px var(--neon), inset 0 0 60px 10px var(--neon); } 100% { opacity: 1; } }
+.live-arrow { position: absolute; top: 50%; width: 72px; height: 72px; margin-top: -36px; padding: 12px; border-radius: 999px; background: rgba(0, 0, 0, .55); color: var(--neon); stroke-width: 3; pointer-events: none; animation: live-arrow-move .8s ease-in-out infinite alternate; }
+.live-arrow-l { left: 16px; }
+.live-arrow-r { right: 16px; animation-name: live-arrow-move-r; }
+@keyframes live-arrow-move { to { transform: translateX(-10px); } }
+@keyframes live-arrow-move-r { to { transform: translateX(10px); } }
+.live-step { color: var(--neon); font-size: 19px; background: rgba(0, 0, 0, .8); }
+@media (prefers-reduced-motion: reduce) { .live-frame, .live-arrow { animation: none; } }
