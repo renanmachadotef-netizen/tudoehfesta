@@ -490,9 +490,6 @@ details.faq p { margin-top: 10px; color: var(--ink-2); }
 .home-search input::placeholder { color: #94A3B8; }
 .home-search button { width: 56px; height: 100%; border: 0; background: none; color: var(--muted); cursor: pointer; display: grid; place-items: center; }
 .home-search button:hover { color: var(--accent); }
-.home-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 120px)); gap: 26px; justify-content: center; margin-top: 4px; }
-.home-stats span { display: flex; flex-direction: column; align-items: center; gap: 8px; color: #FFB347; }
-.home-stats b { font-size: 11.5px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: rgba(255,255,255,.85); }
 @media (max-width: 560px) { .home-stats { grid-template-columns: repeat(2, minmax(0, 140px)); } .home-hero { min-height: 340px; } }
 
 .home-cats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
@@ -510,10 +507,6 @@ details.faq p { margin-top: 10px; color: var(--ink-2); }
 @media (max-width: 860px) { .home-cats { grid-template-columns: repeat(2, minmax(0, 1fr)); } .home-cat { min-height: 120px; } }
 
 .home-selfie { margin-top: 28px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 18px 28px; padding: 24px 26px; background: var(--paper); border-radius: var(--radius); box-shadow: var(--shadow); border-left: 4px solid var(--accent); }
-.home-pro { margin-top: 40px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 18px; padding: 28px; border-radius: var(--radius); background: var(--night); color: #fff; }
-.home-pro .home-h2 { color: #fff; }
-.home-pro p { color: rgba(255,255,255,.75); max-width: 560px; }
-.home-pro .btn { background: var(--accent); color: #fff; }
 
 /* Filtros da lista de eventos */
 .filters { display: grid; grid-template-columns: minmax(220px, 1fr) repeat(3, minmax(130px, 170px)) auto; gap: 10px; padding: 12px; background: var(--paper); border-radius: var(--radius); box-shadow: var(--shadow); }
@@ -569,7 +562,7 @@ details.faq p { margin-top: 10px; color: var(--ink-2); }
 /* Telas pequenas: botoes com texto longo quebram linha em vez de sair da caixa; linha do ano compacta */
 @media (max-width: 560px) {
   .btn { white-space: normal; height: auto; min-height: 44px; padding-top: 10px; padding-bottom: 10px; text-align: center; line-height: 1.2; }
-  .refine .btn, .home-selfie .btn, .home-pro .btn { width: 100%; }
+  .refine .btn, .home-selfie .btn { width: 100%; }
   .year-head { gap: 12px; padding: 12px 14px; }
   .year-peek img:nth-child(n+2) { display: none; }
   .year-body { padding-left: 14px; padding-right: 14px; }
@@ -614,11 +607,6 @@ h3 { font-weight: 600; }
 .home-search input { padding: 0 8px 0 26px; }
 .home-search input::placeholder { color: #8A8A8A; }
 .home-search button { width: 58px; }
-.home-hero:not(.has-image) .home-stats { margin-top: 0; gap: 40px; grid-template-columns: repeat(4, auto); }
-.home-hero:not(.has-image) .home-stats span { flex-direction: row; gap: 8px; color: var(--muted); }
-.home-hero:not(.has-image) .home-stats svg { width: 18px; height: 18px; }
-.home-hero:not(.has-image) .home-stats b { color: var(--ink-2); font-size: 13px; font-weight: 500; letter-spacing: 0; text-transform: none; }
-@media (max-width: 700px) { .home-hero:not(.has-image) .home-stats { grid-template-columns: repeat(2, auto); gap: 14px 28px; } }
 
 /* Atalhos de categoria: cartões claros; os que têm foto continuam com a foto */
 .home-block { padding-top: 56px; }
@@ -635,11 +623,6 @@ h3 { font-weight: 600; }
 
 /* Chamada da selfie e dos fotógrafos: sem barra colorida e sem bloco escuro */
 .home-selfie { border: 1px solid var(--line); border-left-width: 1px; box-shadow: none; padding: 32px 34px; }
-.home-pro { background: var(--surface); color: var(--ink); padding: 32px 34px; }
-.home-pro .home-h2 { color: var(--ink); }
-.home-pro p { color: var(--ink-2); }
-.home-pro .btn { background: var(--ink); color: #fff; }
-.home-pro .btn:hover { background: #000; }
 
 /* Cartões de evento: contorno fino em vez de sombra */
 .event-card { box-shadow: none; border: 1px solid var(--line); border-radius: var(--radius); }
@@ -684,3 +667,13 @@ details.faq summary { font-weight: 550; }
 .home-cat span { margin-left: auto; font-size: 12.5px; }
 @media (max-width: 860px) { .home-cat { min-height: 64px; } }
 .home-cat span { display: none; }
+
+/* Acabamento da página inicial */
+.header { background: var(--bg); backdrop-filter: none; -webkit-backdrop-filter: none; }
+.home-block { padding-top: 24px; padding-bottom: 0; }
+.home-selfie { margin-top: 24px; }
+#eventos.home-block { padding-top: 48px; }
+.home-faq { padding-top: 56px; padding-bottom: 24px; }
+.home-faq > div { max-width: 760px; }
+.home-cat[style]::before { background: linear-gradient(180deg, rgba(0,0,0,.15) 0%, rgba(0,0,0,.65) 100%); }
+.footer h4 { font-family: var(--font); font-size: 13px; font-weight: 600; text-transform: none; letter-spacing: 0; color: var(--ink); }

@@ -1,8 +1,7 @@
 import { useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { ArrowRight, Camera, CalendarDays, ScanFace, Search, ShieldCheck, GraduationCap, Trophy, PartyPopper, LayoutGrid } from 'lucide-react';
+import { ScanFace, Search, GraduationCap, Trophy, PartyPopper, LayoutGrid } from 'lucide-react';
 import { useApi, useSite, useTitle } from '../lib/site.jsx';
-import { compact } from '../lib/format.js';
 import EventBrowser, { QUICK_CATS } from '../components/EventBrowser.jsx';
 
 const FAQ = [
@@ -10,20 +9,18 @@ const FAQ = [
   ['Minha selfie fica guardada?', 'Não. A selfie é enviada com segurança ao nosso servidor só para virar uma sequência de números usada na busca, e a imagem é descartada na hora, sem ser gravada.'],
   ['Como recebo as fotos?', 'Assim que o pagamento é confirmado, as fotos ficam liberadas em “Fotos adquiridas”, em alta resolução e sem marca d’água. Você pode baixar quantas vezes quiser.'],
   ['Quais as formas de pagamento?', 'Pix (aprovação na hora) e cartão de crédito.'],
-  ['Sou fotógrafo, posso vender aqui?', 'Pode! Cadastre-se em “Venda suas fotos”: você publica seus eventos, define seus preços e acompanha vendas e saques num painel próprio.'],
+  ['Sou fotógrafo, posso vender aqui?', 'Pode! Cadastre-se em “Seja fotógrafo parceiro”, no rodapé do site: você publica seus eventos, define seus preços e acompanha vendas e saques num painel próprio.'],
 ];
 
 const QUICK_ICONS = { formaturas: GraduationCap, esportes: Trophy, festas: PartyPopper };
 
 export default function Home() {
   useTitle('');
-  const { site, categories = [], years = [], totals = {} } = useSite();
+  const { site, years = [] } = useSite();
   const facets = useApi('/events/facets');
   const [params, setParams] = useSearchParams();
   const [q, setQ] = useState(params.get('q') || '');
   const covers = facets.data?.covers || {};
-  const since = site?.since || 2003;
-  const count = (slug) => categories.find((c) => c.slug === slug)?.events || 0;
 
   const searchEvents = (e) => {
     e.preventDefault();
@@ -51,19 +48,16 @@ export default function Home() {
         <div className="home-cats">
           {QUICK_CATS.map((c) => {
             const Icon = QUICK_ICONS[c.slug];
-            const n = count(c.slug);
             return (
               <Link key={c.slug} to={c.path} className="home-cat" style={covers[c.slug] ? { backgroundImage: `url(${covers[c.slug]})` } : undefined}>
                 <Icon size={26} strokeWidth={1.75} />
                 <b>{c.label}</b>
-                <span>{n ? `${n} ${n === 1 ? 'evento' : 'eventos'}` : 'Ver eventos'} <ArrowRight size={15} /></span>
               </Link>
             );
           })}
           <Link to="/eventos" className="home-cat home-cat-all">
             <LayoutGrid size={26} strokeWidth={1.75} />
             <b>Todos os eventos</b>
-            <span>{totals.events ? `${totals.events} ${totals.events === 1 ? 'evento' : 'eventos'}` : 'Ver todos'} <ArrowRight size={15} /></span>
           </Link>
         </div>
       </section>
@@ -90,7 +84,7 @@ export default function Home() {
       </section>
 
       {/* Perguntas */}
-      <section className="container home-block" style={{ maxWidth: 860 }}>
+      <section className="container home-block home-faq">
         <h2 className="home-h2">Perguntas frequentes</h2>
         <div>
           {FAQ.map(([q2, a]) => (
