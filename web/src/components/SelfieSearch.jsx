@@ -13,6 +13,7 @@ export default function SelfieSearch({ onSelfie, title = 'Encontre suas fotos co
   const [selfie, setSelfie] = useState(stored);
   const [remember, setRemember] = useState(!!stored);
   const [consent, setConsent] = useState(!!stored);
+  const [needConsent, setNeedConsent] = useState(false); // tocou no botão sem autorizar: destaca a caixa
   const [step, setStep] = useState(null); // passo da selfie ao vivo em andamento
   const [mode, setMode] = useState('idle'); // idle | camera | working
   const [status, setStatus] = useState('');
@@ -131,11 +132,11 @@ export default function SelfieSearch({ onSelfie, title = 'Encontre suas fotos co
         {selfie ? (
           <img src={selfie.preview} alt="Sua selfie" className="selfie-thumb" />
         ) : (
-          <div className="face-ring"><div><ScanFace size={30} color="#ffb21a" /></div></div>
+          <div className="face-ring"><div><ScanFace size={28} color="var(--accent)" strokeWidth={1.75} /></div></div>
         )}
         <div className="stack" style={{ gap: 4 }}>
           <h3 style={{ fontSize: 20 }}>{selfie ? readyTitle : title}</h3>
-          <p className="small" style={{ color: 'rgba(255,255,255,.7)' }}>
+          <p className="small muted">
             {!selfie
               ? subtitle || 'Tire uma selfie e mostramos as fotos em que você aparece. Leva poucos segundos.'
               : remember
@@ -154,15 +155,15 @@ export default function SelfieSearch({ onSelfie, title = 'Encontre suas fotos co
             <video ref={videoRef} className="selfie-video" playsInline muted style={facing === 'environment' ? { transform: 'none' } : undefined} />
             {step && <div className="live-step">{step === 'sending' ? 'Conferindo…' : STEP_TEXT[step]}</div>}
           </div>
-          {!step && <p className="small" style={{ color: 'rgba(255,255,255,.75)', textAlign: 'center', maxWidth: 420 }}>Selfie ao vivo: vamos pedir para você olhar para a câmera e virar o rosto para os lados. Leva uns 6 segundos.</p>}
+          {!step && <p className="small muted" style={{ textAlign: 'center', maxWidth: 420 }}>Selfie ao vivo: vamos pedir para você olhar para a câmera e virar o rosto para os lados. Leva uns 6 segundos.</p>}
           <div className="row">
             <button className="btn btn-accent btn-lg" disabled={!!step} onClick={captureLive}><Camera size={19} /> {step ? 'Gravando…' : 'Começar'}</button>
-            <button className="icon-btn" style={{ color: '#fff' }} aria-label="Trocar câmera" onClick={() => {
+            <button className="icon-btn" aria-label="Trocar câmera" onClick={() => {
               const nf = facing === 'user' ? 'environment' : 'user';
               setFacing(nf);
               openCamera(nf);
             }}><SwitchCamera /></button>
-            <button className="icon-btn" style={{ color: '#fff' }} aria-label="Cancelar" onClick={() => { stopCamera(); setMode('idle'); }}><X /></button>
+            <button className="icon-btn" aria-label="Cancelar" onClick={() => { stopCamera(); setMode('idle'); }}><X /></button>
           </div>
         </div>
       )}
@@ -170,10 +171,10 @@ export default function SelfieSearch({ onSelfie, title = 'Encontre suas fotos co
       {mode !== 'camera' && (
         <>
           {!selfie && (
-            <label className="check">
-              <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} />
+            <label className={`check consent${needConsent && !consent ? ' check-need' : ''}`}>
+              <input type="checkbox" checked={consent} onChange={(e) => { setConsent(e.target.checked); setNeedConsent(false); }} />
               <span>
-                {consentText || 'Autorizo usar minha selfie ao vivo (alguns quadros da câmera) para encontrar minhas fotos. Ela é analisada no servidor do site só para gerar o código do rosto e é descartada na hora, sem ser guardada.'}{' '}
+                {consentText || 'Autorizo usar minha selfie só para achar minhas fotos. Ela é analisada no nosso servidor, descartada na hora e não fica guardada.'}{' '}
                 <Link to="/privacidade" style={{ textDecoration: 'underline' }}>Saiba mais</Link>
               </span>
             </label>
@@ -184,22 +185,22 @@ export default function SelfieSearch({ onSelfie, title = 'Encontre suas fotos co
                 <button className="btn btn-accent" disabled={working} onClick={() => onSelfie?.(selfie)}>
                   <ScanFace size={18} /> {working ? 'Aguarde…' : actionLabel}
                 </button>
-                <button className="btn btn-ghost" style={{ color: '#fff', borderColor: 'rgba(255,255,255,.25)' }} disabled={working} onClick={forget}>
+                <button className="btn btn-ghost" disabled={working} onClick={forget}>
                   <UserPlus size={17} /> {allowRemember ? 'Nova selfie (outra pessoa)' : 'Trocar selfie'}
                 </button>
                 {remember && (
-                  <button className="btn btn-ghost" style={{ color: '#fff', borderColor: 'rgba(255,255,255,.25)' }} disabled={working} onClick={forget}>
+                  <button className="btn btn-ghost" disabled={working} onClick={forget}>
                     <Trash2 size={16} /> Esquecer selfie
                   </button>
                 )}
               </>
             ) : (
               <>
-                <button className="btn btn-accent" disabled={!consent || working} onClick={() => openCamera()}>
+                <button className="btn btn-accent" disabled={working} onClick={() => (consent ? openCamera() : setNeedConsent(true))}>
                   <Camera size={18} /> Selfie ao vivo
                 </button>
                 {allowPhoto && (
-                  <button className="btn btn-ghost" style={{ color: '#fff', borderColor: 'rgba(255,255,255,.25)' }} disabled={!consent || working} onClick={() => fileRef.current?.click()}>
+                  <button className="btn btn-ghost" disabled={working} onClick={() => (consent ? fileRef.current?.click() : setNeedConsent(true))}>
                     <ImagePlus size={18} /> Enviar foto
                   </button>
                 )}
@@ -216,10 +217,10 @@ export default function SelfieSearch({ onSelfie, title = 'Encontre suas fotos co
         </>
       )}
 
-      {mode === 'working' && <div className="row small" style={{ color: 'rgba(255,255,255,.8)' }}><div className="spinner" /> {status}</div>}
+      {mode === 'working' && <div className="row small muted"><div className="spinner" /> {status}</div>}
       {error && <div className="alert alert-bad">{error}</div>}
-      <div className="row tiny" style={{ color: 'rgba(255,255,255,.5)', gap: 6 }}>
-        <ShieldCheck size={14} /> {allowPhoto ? 'Evento particular: vale selfie ao vivo ou foto.' : 'Selfie ao vivo para proteger quem aparece nas fotos: ninguém busca você com uma foto sua.'} Nada é guardado: vira um código numérico e as imagens são descartadas (LGPD).
+      <div className="row tiny muted" style={{ gap: 6 }}>
+        <ShieldCheck size={14} /> {allowPhoto ? 'Evento particular: vale selfie ao vivo ou foto.' : 'Selfie ao vivo para proteger quem aparece nas fotos: ninguém busca você com uma foto sua.'} Nada é guardado (LGPD).
       </div>
     </div>
   );

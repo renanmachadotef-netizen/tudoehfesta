@@ -677,3 +677,22 @@ details.faq summary { font-weight: 550; }
 .home-faq > div { max-width: 760px; }
 .home-cat[style]::before { background: linear-gradient(180deg, rgba(0,0,0,.15) 0%, rgba(0,0,0,.65) 100%); }
 .footer h4 { font-family: var(--font); font-size: 13px; font-weight: 600; text-transform: none; letter-spacing: 0; color: var(--ink); }
+
+/* Tela de evento e caixa de selfie (versão clara) */
+.scope-note { background: var(--surface); color: var(--ink-2); font-weight: 500; }
+.selfie-box { gap: 18px; padding: 26px 28px; }
+.selfie-box .face-ring { width: 52px; height: 52px; background: var(--accent-soft); }
+.selfie-box .face-ring > div { width: 100%; height: 100%; background: transparent; }
+.selfie-box h3 { font-weight: 600; }
+.event-head { gap: 40px; }
+.event-head .cover { border-radius: var(--radius); }
+.price-box { background: var(--paper); border: 1px solid var(--line); }
+.price-box b.big { font-weight: 700; }
+
+/* Autorização da selfie: alvo grande, botão sempre ativo e aviso no lugar certo */
+.check.consent { align-items: center; gap: 14px; padding: 12px 14px; min-height: 52px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--paper); }
+.check.consent input { width: 24px; height: 24px; margin: 0; flex: none; }
+.check.consent.check-need { border-color: var(--accent); background: var(--accent-soft); animation: need-nudge .35s ease; }
+@keyframes need-nudge { 0%, 100% { transform: none; } 30% { transform: translateX(-4px); } 60% { transform: translateX(4px); } }
+@media (prefers-reduced-motion: reduce) { .check.consent.check-need { animation: none; } }
+.btn-lg, .selfie-box .btn { min-height: 48px; }
