@@ -37,7 +37,7 @@ export default function Home() {
         <div className="container home-hero-inner">
           <h1 className="sr-only">{site?.tagline || 'Eternizando gerações!'}</h1>
           <form className="home-search" onSubmit={searchEvents} role="search">
-            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Procure pelo evento que você participou" aria-label="Procure pelo evento que você participou" />
+            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar evento" aria-label="Procure pelo evento que você participou" />
             <button aria-label="Buscar"><Search size={20} /></button>
           </form>
         </div>

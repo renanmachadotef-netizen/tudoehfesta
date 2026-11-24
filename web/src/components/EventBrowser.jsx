@@ -89,15 +89,15 @@ export default function EventBrowser({ category, title, subtitle, allPath = '/ev
           <input value={text} onChange={(e) => setText(e.target.value)} placeholder="Nome do evento, local ou cidade" aria-label="Buscar evento" />
         </label>
         <select className="select" value={year} onChange={(e) => setParam('ano', e.target.value)} aria-label="Ano">
-          <option value="">Todos os anos</option>
+          <option value="">Ano</option>
           {years.map((y) => <option key={y.year} value={y.year}>{y.year}</option>)}
         </select>
         <select className="select" value={month} onChange={(e) => setParam('mes', e.target.value)} aria-label="Mês">
-          <option value="">Todos os meses</option>
+          <option value="">Mês</option>
           {MONTH_NAMES.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}
         </select>
         <select className="select" value={city} onChange={(e) => setParam('cidade', e.target.value)} aria-label="Cidade">
-          <option value="">Todas as cidades</option>
+          <option value="">Cidade</option>
           {cities.map((c) => <option key={c.city} value={c.city}>{c.city}</option>)}
         </select>
         <button className="btn btn-accent">Buscar</button>
